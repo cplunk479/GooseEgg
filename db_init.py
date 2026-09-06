@@ -229,6 +229,31 @@ TABLES = [
     """,
 ]
 
+# Additive column migrations, run after the CREATE TABLEs on every init. This
+# is how v0.5's tier columns reach a database that was created by v0.4 --
+# ADD COLUMN IF NOT EXISTS is a no-op on a fresh database and the only safe way
+# to change a live one without a migration framework. Never put a DROP or a
+# type change in this list: it runs unattended on every deploy.
+MIGRATIONS = [
+    # v0.5 -- risk tiers replace the goose percentage
+    "ALTER TABLE lineup_slots ADD COLUMN IF NOT EXISTS tier TEXT",
+    "ALTER TABLE lineup_slots ADD COLUMN IF NOT EXISTS proj_ratio NUMERIC(6,3)",
+    "ALTER TABLE lineup_slots ADD COLUMN IF NOT EXISTS risk_reason TEXT",
+    "ALTER TABLE team_weeks  ADD COLUMN IF NOT EXISTS risk_tier TEXT",
+    "ALTER TABLE team_weeks  ADD COLUMN IF NOT EXISTS risk_score NUMERIC(6,2)",
+    "ALTER TABLE team_weeks  ADD COLUMN IF NOT EXISTS at_risk INTEGER",
+    # v0.5 -- a week can now be unlocked, so record who did it and when
+    "ALTER TABLE weeks ADD COLUMN IF NOT EXISTS unlocked_at BIGINT",
+    "ALTER TABLE weeks ADD COLUMN IF NOT EXISTS unlocked_by INTEGER",
+    # v0.5 -- demo mode. Every row demo mode creates carries this flag, which
+    # is the ONLY thing that lets leaving demo mode delete exactly what it
+    # made and nothing a real week produced. Never set it by hand.
+    "ALTER TABLE curses       ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE curse_tokens ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE blessings    ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE chugs        ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
+]
+
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_gooses_owner ON gooses (season, roster_id)",
     "CREATE INDEX IF NOT EXISTS idx_chugs_owner ON chugs (season, roster_id, status)",
@@ -253,10 +278,12 @@ def create_schema(db, reset: bool = False) -> None:
         print("  dropped existing tables")
     for stmt in TABLES:
         db.execute(stmt)
+    for stmt in MIGRATIONS:
+        db.execute(stmt)
     for stmt in INDEXES:
         db.execute(stmt)
     db.commit()
-    print(f"  {len(TABLES)} tables, {len(INDEXES)} indexes")
+    print(f"  {len(TABLES)} tables, {len(MIGRATIONS)} migrations, {len(INDEXES)} indexes")
 
 
 def seed_settings(db) -> int:

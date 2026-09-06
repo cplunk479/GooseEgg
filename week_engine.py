@@ -145,16 +145,25 @@ def open_week(db, league_id: str, season: int, week: int, admin_roster_id: int =
 
 
 # --------------------------------------------------------------------------
-# lock
+# projection -- shared by the live preview and by the lock snapshot
 # --------------------------------------------------------------------------
 
-def lock_week(db, league_id: str, season: int, week: int, force: bool = False) -> dict:
-    row = ensure_week(db, season, week)
-    if row["status"] == "locked" and not force:
-        return {"ok": False, "reason": f"week {week} is already locked"}
-    if row["status"] == "final":
-        return {"ok": False, "reason": f"week {week} is already settled"}
+def project_week(db, league_id: str, season: int, week: int) -> dict:
+    """
+    Compute every lineup's projection and risk tier for a week. READ ONLY --
+    it touches Sleeper and players_cache and writes nothing.
 
+    This exists so that one piece of arithmetic serves two jobs that used to be
+    welded together inside lock_week. lock_week now calls this and PERSISTS the
+    answer; the Board and My Geese call it and DISPLAY the answer before a week
+    locks. Before v0.5 there was no second caller, which is why the board was
+    blank until Sunday kickoff -- there was nothing wrong with the numbers, they
+    simply did not exist until the moment they were frozen.
+
+    Anything rendered from this is a moving number and must be labelled as one.
+    The frozen snapshot in lineup_slots / team_weeks is the only version a
+    curse is ever graded against.
+    """
     slots = sleeper.starting_slots(league_id)
     scoring = sleeper.scoring_settings(league_id)
     matchups = sleeper.matchups(league_id, week)
@@ -163,62 +172,142 @@ def lock_week(db, league_id: str, season: int, week: int, force: bool = False) -
 
     players = {
         r["player_id"]: r for r in db.execute(
-            "SELECT player_id, position, team, injury_status FROM players_cache"
+            "SELECT player_id, full_name, position, team, injury_status FROM players_cache"
         ).fetchall()
     }
 
-    stamped = 0
+    # Pass one: every started slot in the league, so the position averages are
+    # the LEAGUE'S OWN bar for the week rather than a number from a table.
+    # This has to happen before any tier is assigned -- the bar is the divisor.
+    raw: list[dict] = []
     for m in matchups:
         rid = m.get("roster_id")
-        starters = m.get("starters") or []
-        probs, proj_total = [], 0.0
-
-        for i, pid in enumerate(starters):
+        for i, pid in enumerate(m.get("starters") or []):
             pid = None if goose.is_empty_slot(pid) else str(pid)
             meta = players.get(pid) or {}
             proj = (
                 sleeper.player_points(projections.get(pid, {}), scoring)
-                if pid else 0.0
+                if pid else None
             )
-            p = goose.player_goose_probability(
-                player_id=pid,
-                position=meta.get("position"),
-                projection=proj if pid else None,
-                injury_status=meta.get("injury_status"),
-                on_bye=bool(meta.get("team") and meta["team"].upper() in byes),
-            )
-            probs.append(p)
-            proj_total += proj
+            team = (meta.get("team") or "").upper()
+            raw.append({
+                "roster_id": rid,
+                "slot_index": i,
+                "slot": slots[i] if i < len(slots) else f"S{i + 1}",
+                "player_id": pid,
+                "name": meta.get("full_name") or ("Empty slot" if pid is None else f"Player {pid}"),
+                "position": meta.get("position"),
+                "nfl_team": team or None,
+                "injury_status": meta.get("injury_status"),
+                "projection": proj,
+                "on_bye": bool(team and team in byes),
+                # Same undocumented Sleeper CDN path the app itself uses.
+                # Missing players 404 and the template hides the broken image.
+                "photo": f"https://sleepercdn.com/content/nfl/players/thumb/{pid}.jpg" if pid else None,
+            })
 
+    position_avg = goose.position_averages(raw)
+
+    # Pass two: tier every slot against that bar.
+    rosters: dict = {}
+    for row in raw:
+        risk = goose.player_risk(
+            player_id=row["player_id"],
+            position=row["position"],
+            projection=row["projection"],
+            position_avg=position_avg.get((row["position"] or "").upper()),
+            injury_status=row["injury_status"],
+            on_bye=row["on_bye"],
+        )
+        row.update(risk)
+        bucket = rosters.setdefault(row["roster_id"], {"slots": [], "proj_total": 0.0})
+        bucket["slots"].append(row)
+        bucket["proj_total"] += float(row["projection"] or 0.0)
+
+    for rid, bucket in rosters.items():
+        bucket["slots"].sort(key=lambda r: r["slot_index"])
+        bucket["roster_id"] = rid
+        bucket["proj_total"] = round(bucket["proj_total"], 2)
+        bucket["risk"] = goose.team_risk([r["tier"] for r in bucket["slots"]])
+
+    return {
+        "week": week,
+        "position_avg": {k: round(v, 2) for k, v in position_avg.items()},
+        "rosters": rosters,
+        "expected_gooses": goose.expected_gooses(
+            r["tier"] for b in rosters.values() for r in b["slots"]),
+    }
+
+
+# --------------------------------------------------------------------------
+# lock
+# --------------------------------------------------------------------------
+
+def lock_week(db, league_id: str, season: int, week: int, force: bool = False) -> dict:
+    row = ensure_week(db, season, week)
+    if row["status"] == "locked" and not force:
+        return {"ok": False, "reason": f"week {week} is already locked"}
+    # A settled week refuses even a forced lock. Flipping it back to `locked`
+    # while its chugs, tokens and blessings all still exist would leave the
+    # status lying about a week people have already acted on. Reset is the way
+    # back from settled, and it says so.
+    if row["status"] == "final":
+        return {"ok": False, "reason":
+                f"week {week} is settled -- use Reset week to unwind it first"}
+
+    projected = project_week(db, league_id, season, week)
+
+    stamped = 0
+    for rid, bucket in projected["rosters"].items():
+        for row_ in bucket["slots"]:
             db.execute(
                 """
                 INSERT INTO lineup_slots
-                    (season, week, roster_id, slot_index, slot, player_id, proj_pts, goose_prob)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (season, week, roster_id, slot_index, slot, player_id,
+                     proj_pts, goose_prob, tier, proj_ratio, risk_reason)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (season, week, roster_id, slot_index) DO UPDATE SET
                     slot = EXCLUDED.slot, player_id = EXCLUDED.player_id,
-                    proj_pts = EXCLUDED.proj_pts, goose_prob = EXCLUDED.goose_prob
+                    proj_pts = EXCLUDED.proj_pts, goose_prob = EXCLUDED.goose_prob,
+                    tier = EXCLUDED.tier, proj_ratio = EXCLUDED.proj_ratio,
+                    risk_reason = EXCLUDED.risk_reason
                 """,
-                (season, week, rid, i, slots[i] if i < len(slots) else f"S{i+1}",
-                 pid, round(proj, 2), round(p, 4)),
+                (season, week, rid, row_["slot_index"], row_["slot"], row_["player_id"],
+                 round(float(row_["projection"] or 0.0), 2), round(row_["rate"], 4),
+                 row_["tier"], row_["ratio"], row_["reason"]),
             )
 
+        risk = bucket["risk"]
         db.execute(
             """
-            INSERT INTO team_weeks (season, week, roster_id, proj_total, chug_odds, locked_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO team_weeks
+                (season, week, roster_id, proj_total, chug_odds, risk_tier,
+                 risk_score, at_risk, locked_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (season, week, roster_id) DO UPDATE SET
                 proj_total = EXCLUDED.proj_total,
                 chug_odds  = EXCLUDED.chug_odds,
+                risk_tier  = EXCLUDED.risk_tier,
+                risk_score = EXCLUDED.risk_score,
+                at_risk    = EXCLUDED.at_risk,
                 locked_at  = EXCLUDED.locked_at
             """,
-            (season, week, rid, round(proj_total, 2),
-             round(goose.team_chug_odds(probs), 4), now()),
+            (season, week, rid, bucket["proj_total"], risk["rate"], risk["tier"],
+             risk["score"], risk["at_risk"], now()),
         )
         stamped += 1
 
-    # Freeze each open curse against its target's projection. After this line
-    # the number cannot move, whatever Sleeper does to its projections later.
+    # Freeze each open curse against its target's projection -- but ONLY those
+    # that have no threshold yet.
+    #
+    # The `threshold_proj IS NULL` guard is what makes an admin unlock safe. A
+    # week can now go locked -> open -> locked so people can still cast, and
+    # without this guard the second lock would re-freeze every curse against a
+    # projection that has since absorbed the inactives list. That would make
+    # cursing late strictly better than cursing early, which is the whole
+    # failure the frozen threshold exists to prevent. Cast early or cast late:
+    # the number you are graded against is the one from first kickoff.
+    #
     # No alias on the UPDATE target: Postgres allows `UPDATE curses c ...`,
     # SQLite does not, and the engine tests run this exact statement.
     cur = db.execute(
@@ -228,6 +317,7 @@ def lock_week(db, league_id: str, season: int, week: int, force: bool = False) -
         WHERE curses.season = t.season AND curses.week = t.week
           AND curses.target_roster_id = t.roster_id
           AND curses.season = %s AND curses.week = %s AND curses.status = 'cast'
+          AND curses.threshold_proj IS NULL
         """,
         (season, week),
     )
@@ -238,7 +328,46 @@ def lock_week(db, league_id: str, season: int, week: int, force: bool = False) -
         (now(), season, week),
     )
     db.commit()
-    return {"ok": True, "week": week, "lineups": stamped, "curses_frozen": frozen}
+    return {"ok": True, "week": week, "lineups": stamped, "curses_frozen": frozen,
+            "expected_gooses": projected["expected_gooses"]}
+
+
+def unlock_week(db, season: int, week: int, admin_roster_id: int = None) -> dict:
+    """
+    Put a locked week back to `open` so curses can still be cast.
+
+    What it does NOT do is give anything back its freedom to move. Every
+    threshold_proj already stamped on a curse stays exactly where it is, the
+    lineup snapshot stays in place, and a curse cast during the unlocked window
+    is stamped immediately with that same frozen number (see cast_curse). The
+    unlock buys TIME, not a fresh projection -- an owner who casts at 4pm is
+    graded against the 1pm bar like everybody else.
+
+    Refuses on a settled week. Undoing a settle means unwinding chugs, tokens
+    and blessings that people have already acted on, which is reset_week's job
+    and deliberately behind a typed confirmation.
+    """
+    row = get_week(db, season, week)
+    if row is None:
+        return {"ok": False, "reason": f"week {week} does not exist yet"}
+    if row["status"] == "final":
+        return {"ok": False, "reason":
+                f"week {week} is settled -- use Reset week to unwind it"}
+    if row["status"] != "locked":
+        return {"ok": False, "reason": f"week {week} is {row['status']}, not locked"}
+
+    db.execute(
+        "UPDATE weeks SET status = 'open', unlocked_at = %s, unlocked_by = %s "
+        "WHERE season = %s AND week = %s",
+        (now(), admin_roster_id, season, week),
+    )
+    db.commit()
+    held = db.execute(
+        "SELECT COUNT(*) AS n FROM curses WHERE season = %s AND week = %s "
+        "AND status = 'cast' AND threshold_proj IS NOT NULL",
+        (season, week),
+    ).fetchone()["n"]
+    return {"ok": True, "week": week, "thresholds_held": held}
 
 
 # --------------------------------------------------------------------------
@@ -476,16 +605,31 @@ def cast_curse(db, season: int, week: int, caster: int, target: int) -> dict:
         if mine:
             return {"ok": False, "reason": "You have already cursed that owner this week."}
 
+    # If this week has ALREADY been locked once and an admin reopened it, the
+    # target's projection is a settled number and this curse inherits it on the
+    # spot. Leaving it NULL until the next lock would hand a late caster a
+    # projection that has since absorbed the inactive list -- the exact edge the
+    # frozen threshold exists to close. See unlock_week.
+    frozen = None
+    tw = db.execute(
+        "SELECT proj_total, locked_at FROM team_weeks "
+        "WHERE season = %s AND week = %s AND roster_id = %s",
+        (season, week, target),
+    ).fetchone()
+    if tw and tw["locked_at"]:
+        frozen = tw["proj_total"]
+
     token = tokens[0]
     cur = db.execute(
-        "INSERT INTO curses (season, week, caster_roster_id, target_roster_id, token_id, status, created_at) "
-        "VALUES (%s, %s, %s, %s, %s, 'cast', %s) RETURNING id",
-        (season, week, caster, target, token["id"], now()),
+        "INSERT INTO curses (season, week, caster_roster_id, target_roster_id, token_id, "
+        "threshold_proj, status, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, 'cast', %s) RETURNING id",
+        (season, week, caster, target, token["id"], frozen, now()),
     )
     curse_id = cur.fetchone()["id"]
     db.execute("UPDATE curse_tokens SET spent_on = %s WHERE id = %s", (curse_id, token["id"]))
     db.commit()
-    return {"ok": True, "curse_id": curse_id}
+    return {"ok": True, "curse_id": curse_id, "threshold_proj": frozen}
 
 
 def cancel_curse(db, season: int, curse_id: int, caster: int) -> dict:
@@ -554,3 +698,95 @@ def unconfirm_chug(db, season: int, chug_id: int) -> dict:
     )
     db.commit()
     return {"ok": True, "tokens_reclaimed": cur.rowcount}
+
+
+# --------------------------------------------------------------------------
+# admin resets -- destructive, and meant to be
+# --------------------------------------------------------------------------
+#
+# Built for testing a real week end to end before the season starts, so these
+# have to unwind EVERYTHING a settle created, in the reverse of the order
+# settle_week created it. Getting that order wrong leaves orphans: a token
+# minted by a chug that no longer exists, a curse pointing at a blessing row
+# that has been deleted. The order below is the one that leaves nothing behind.
+#
+# Neither of these is reachable without a typed confirmation in the admin UI.
+# There is no undo.
+
+def reset_week(db, season: int, week: int) -> dict:
+    """
+    Return one week to `upcoming` as if it had never been played.
+
+    Curses cast that week are NOT deleted -- they are rewound to 'cast' with
+    their threshold cleared, and their tokens are still spent. That is the
+    deliberate choice: the curse economy spans weeks, so silently handing back
+    tokens for a week the commissioner is only re-testing would inflate
+    everyone's balance. Void individual curses on the Curses tab if that is
+    what you actually want.
+    """
+    counts: dict = {}
+
+    # Tokens minted BY this week's events, but only ones nobody has spent yet.
+    # A spent token bought a curse in a later week that other people played
+    # around; clawing it back would rewrite their week too.
+    counts["tokens"] = db.execute(
+        "DELETE FROM curse_tokens WHERE season = %s AND earned_week = %s "
+        "AND spent_on IS NULL AND source IN ('chug', 'curse_landed')",
+        (season, week),
+    ).rowcount
+    counts["blessings"] = db.execute(
+        "DELETE FROM blessings WHERE season = %s AND earned_week = %s", (season, week)
+    ).rowcount
+    # A blessing this week's settle CONSUMED goes back to active.
+    db.execute(
+        "UPDATE blessings SET status = 'active', consumed_by = NULL, resolved_at = NULL "
+        "WHERE season = %s AND expires_after >= %s AND status = 'consumed' "
+        "AND consumed_by IN (SELECT id FROM curses WHERE season = %s AND week = %s)",
+        (season, week, season, week),
+    )
+    counts["curses_rewound"] = db.execute(
+        "UPDATE curses SET status = 'cast', threshold_proj = NULL, actual_total = NULL, "
+        "blocked_by = NULL, resolved_at = NULL WHERE season = %s AND week = %s",
+        (season, week),
+    ).rowcount
+    # Chugs that ROLLED INTO this week came from an earlier one; send them home
+    # rather than deleting someone else's week.
+    db.execute(
+        "UPDATE chugs SET week = rolled_from_week, rolled_from_week = NULL "
+        "WHERE season = %s AND week = %s AND rolled_from_week IS NOT NULL",
+        (season, week),
+    )
+    counts["chugs"] = db.execute(
+        "DELETE FROM chugs WHERE season = %s AND week = %s", (season, week)
+    ).rowcount
+    counts["gooses"] = db.execute(
+        "DELETE FROM gooses WHERE season = %s AND week = %s", (season, week)
+    ).rowcount
+    counts["lineups"] = db.execute(
+        "DELETE FROM lineup_slots WHERE season = %s AND week = %s", (season, week)
+    ).rowcount
+    db.execute("DELETE FROM team_weeks WHERE season = %s AND week = %s", (season, week))
+    db.execute(
+        "UPDATE weeks SET status = 'upcoming', opened_at = NULL, opened_by = NULL, "
+        "locked_at = NULL, settled_at = NULL, unlocked_at = NULL, unlocked_by = NULL "
+        "WHERE season = %s AND week = %s",
+        (season, week),
+    )
+    db.commit()
+    return {"ok": True, "week": week, **counts}
+
+
+def reset_season(db, season: int) -> dict:
+    """
+    Wipe every week of a season: gooses, chugs, curses, blessings and tokens
+    all the way back to an empty board. Owners, PINs and commissioner rules
+    survive -- resetting a test season should not cost anyone their login.
+    """
+    counts = {}
+    for table in ("blessings", "curses", "curse_tokens", "chugs", "gooses",
+                  "team_weeks", "lineup_slots"):
+        counts[table] = db.execute(
+            f"DELETE FROM {table} WHERE season = %s", (season,)).rowcount
+    db.execute("DELETE FROM weeks WHERE season = %s", (season,))
+    db.commit()
+    return {"ok": True, "season": season, **counts}

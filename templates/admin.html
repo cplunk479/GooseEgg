@@ -35,6 +35,11 @@
   <a class="{% if tab == 'curses' %}sel{% endif %}" href="{{ url_for('admin', tab='curses') }}">Curses</a>
   <a class="{% if tab == 'rules' %}sel{% endif %}" href="{{ url_for('admin', tab='rules') }}">Rules</a>
 </div>
+<div class="tabs" style="border-top: none; padding-top: 0;">
+  <a class="{% if tab == 'demo' %}sel{% endif %}" href="{{ url_for('admin', tab='demo') }}">Demo{% if demo_on %} &middot; ON{% endif %}</a>
+  <a class="{% if tab == 'reset' %}sel{% endif %}" href="{{ url_for('admin', tab='reset') }}"
+     style="{% if tab == 'reset' %}border-color: var(--flame); background: rgba(217,87,58,0.12); color: var(--flame);{% endif %}">Reset</a>
+</div>
 
 {% if tab == 'chugs' %}
   {% set owed = chugs | selectattr('status', 'equalto', 'owed') | list %}
@@ -93,8 +98,16 @@
     <button class="btn-sm" name="action" value="set-active" type="submit">Set active</button>
     <button class="btn-sm go" name="action" value="open" type="submit">Open</button>
     <button class="btn-sm" name="action" value="lock" type="submit">Lock</button>
+    <button class="btn-sm" name="action" value="unlock" type="submit">Unlock</button>
     <button class="btn-sm warn" name="action" value="settle" type="submit">Settle</button>
   </form>
+  <div class="caption" style="padding: 0 14px 16px; line-height: 1.55;">
+    <strong style="color: var(--text);">Unlock</strong> puts a locked week back to
+    <em>open</em> so people can still cast. It does not hand anything a fresh number:
+    every projection already frozen stays frozen, and a curse cast during the unlocked
+    window inherits that same kickoff figure. Cast early or cast late &mdash; the bar is
+    the same. Unlock refuses on a settled week; use Reset for that.
+  </div>
   {% for w in weeks %}
   <div class="arow">
     <div style="flex: 1;">
@@ -160,6 +173,90 @@
     {% endif %}
   </div>
   {% endfor %}
+
+{% elif tab == 'demo' %}
+  <div style="padding: 14px;">
+    <div class="caption" style="line-height: 1.6;">
+      Demo mode replays week {{ active }} as a <strong style="color: var(--text);">mid-Sunday
+      afternoon</strong>: the early games final, the afternoon slate in the fourth quarter,
+      the late slate and the night games still to come. Real players, real lineups, real
+      projections &mdash; only the clock and the points are invented.
+      <br><br>
+      It works by replacing what Sleeper says, not by writing invented history. The one
+      exception is a handful of curses, tokens and blessings, which have to be real rows
+      to show up at all; every one is flagged and deleted when you switch demo off.
+      <br><br>
+      <strong style="color: var(--gold);">Auto-lock and auto-settle stop while demo mode is
+      on.</strong> Four of those games say FINAL, and settling against them would raise real
+      chugs off invented scores.
+    </div>
+  </div>
+  {% if demo_on %}
+  <div style="margin: 0 14px 14px; padding: 13px 15px; border-radius: 12px; background: #241E05; border: 1px solid var(--gold);">
+    <div class="bar" style="font-weight: 800; font-size: 12px; letter-spacing: 0.14em; color: var(--halo);">DEMO MODE IS ON</div>
+    <div class="caption" style="margin-top: 6px; line-height: 1.55;">
+      Week {{ demo.week }} &middot; {{ demo.starters }} starters &middot;
+      {{ demo.gooses | length }} planted goose{{ '' if demo.gooses | length == 1 else 's' }}.
+      Everything on every screen right now is simulated.
+    </div>
+  </div>
+  <form method="POST" action="{{ url_for('admin_demo') }}" style="padding: 0 14px 24px;">
+    <button class="btn-primary" name="action" value="demo-off" type="submit">Turn demo off and restore live data</button>
+  </form>
+  {% else %}
+  <form method="POST" action="{{ url_for('admin_demo') }}" style="padding: 0 14px 24px; display: flex; gap: 8px; align-items: center;">
+    <input class="mini" type="number" name="week" value="{{ active }}" min="1" max="18" style="width: 74px;">
+    <button class="btn-primary" name="action" value="demo-on" type="submit" style="flex: 1;">Start demo</button>
+  </form>
+  {% endif %}
+
+{% elif tab == 'reset' %}
+  <div style="padding: 14px;">
+    <div class="caption" style="line-height: 1.6;">
+      For testing a week end to end before the season starts. Both of these unwind
+      everything a settle created &mdash; gooses, chugs, tokens, blessings &mdash; and
+      <strong style="color: var(--flame);">there is no undo.</strong>
+      <br><br>
+      Curses are rewound to <em>cast</em> rather than deleted, and their tokens stay spent:
+      the curse economy runs across weeks, so handing tokens back for a week you are only
+      re-testing would quietly inflate everyone&rsquo;s balance. Void individual curses on
+      the Curses tab if that is what you actually want.
+      <br><br>
+      Owners, PINs and commissioner rules survive both.
+    </div>
+  </div>
+
+  <div style="margin: 0 14px 14px; padding: 14px 15px; border-radius: 12px; background: #1B100C; border: 1px solid rgba(217,87,58,0.5);">
+    <div class="bar" style="font-weight: 800; font-size: 12px; letter-spacing: 0.14em; color: var(--flame);">CLEAR ONE WEEK</div>
+    <form method="POST" action="{{ url_for('admin_reset') }}" style="margin-top: 10px;">
+      <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 9px;">
+        <span class="caption">Week</span>
+        <input class="mini" type="number" name="week" id="rw" value="{{ active }}" min="1" max="18" style="width: 70px;"
+               oninput="document.getElementById('rwlbl').textContent = 'RESET WEEK ' + this.value;">
+      </div>
+      <input class="input" type="text" name="confirm" autocomplete="off" spellcheck="false"
+             placeholder="Type RESET WEEK {{ active }}" style="font-size: 13px; margin-bottom: 9px;">
+      <div class="caption" style="margin-bottom: 9px;">
+        Type <strong id="rwlbl" style="color: var(--flame);">RESET WEEK {{ active }}</strong> exactly to confirm.
+      </div>
+      <button class="btn-primary" name="action" value="reset-week" type="submit"
+              style="background: var(--flame); color: #fff;">Clear this week</button>
+    </form>
+  </div>
+
+  <div style="margin: 0 14px 24px; padding: 14px 15px; border-radius: 12px; background: #1B100C; border: 1px solid var(--blood);">
+    <div class="bar" style="font-weight: 800; font-size: 12px; letter-spacing: 0.14em; color: var(--flame);">CLEAR THE WHOLE SEASON</div>
+    <div class="caption" style="margin-top: 6px; line-height: 1.55;">
+      Every week, every goose, every chug, every token and every curse of {{ season }}.
+      An empty board.
+    </div>
+    <form method="POST" action="{{ url_for('admin_reset') }}" style="margin-top: 10px;">
+      <input class="input" type="text" name="confirm" autocomplete="off" spellcheck="false"
+             placeholder="Type RESET SEASON {{ season }}" style="font-size: 13px; margin-bottom: 9px;">
+      <button class="btn-primary" name="action" value="reset-season" type="submit"
+              style="background: var(--blood); color: #fff;">Clear season {{ season }}</button>
+    </form>
+  </div>
 
 {% elif tab == 'rules' %}
   <div style="padding: 14px;">

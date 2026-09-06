@@ -19,6 +19,7 @@ from jinja2 import Environment, FileSystemLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import filters as filtersmod  # noqa: E402
 import goose  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,10 +35,11 @@ def check(label, condition, detail=""):
 
 
 def build_env():
-    env = Environment(loader=FileSystemLoader(os.path.join(ROOT, "templates")))
-    env.filters["odds"] = lambda p: "--" if p is None else goose.american_price(float(p))
-    env.filters["pct"] = lambda p: "--" if p is None else f"{float(p) * 100:.0f}%"
-    env.filters["pts"] = lambda v: "--" if v is None else f"{float(v):.1f}"
+    from jinja2 import StrictUndefined
+    env = Environment(loader=FileSystemLoader(os.path.join(ROOT, "templates")),
+                      undefined=StrictUndefined)
+    # The app's real filters, not a copy of them. See filters.py.
+    env.filters.update(filtersmod.FILTERS)
     env.globals["url_for"] = lambda ep, **kw: f"/{ep}"
     env.globals["get_flashed_messages"] = lambda **kw: []
     env.globals["request"] = type("R", (), {"endpoint": "board"})()
@@ -51,29 +53,60 @@ WK = {"week": 1, "status": "open", "lock_epoch": 1, "end_epoch": 2,
       "opened_at": 1, "locked_at": None, "settled_at": None}
 
 ROW = {"roster_id": 1, "team": "The Melange Moguls", "owner_name": "Conner", "avatar": None,
-       "chug_odds": 0.26, "proj_total": 153.4, "actual_total": None, "goose_count": 0,
-       "curses": [{"id": 1, "status": "cast", "caster": "Team 2", "mine": False, "sealed": True}],
-       "blessed": False, "is_me": True}
+       "proj_total": 153.4, "actual_total": None, "goose_count": 0,
+       "risk_tier": "EXPOSED", "risk_score": 1.36, "risk_rate": 0.30, "at_risk": 2,
+       "curses": [{"id": 1, "status": "cast", "caster": "Team 2", "mine": False,
+                   "sealed": True, "threshold": 150.0}],
+       "cast_on_them": 1, "blessed": False, "is_me": True}
+
+# A second row with nothing known about it, because "no projection yet" is a
+# real state all week and the board has to render it without a tier.
+BLANK_ROW = {**ROW, "roster_id": 2, "team": "Team 2", "is_me": False, "proj_total": None,
+             "risk_tier": None, "risk_score": None, "risk_rate": None, "at_risk": 0,
+             "curses": [], "cast_on_them": 0, "blessed": True}
+
+MOST_CURSED = {"roster_id": 3, "team": "Team 3", "avatar": None, "count": 4, "landed": 2}
 
 CASES = {
     "login.html": {"owners": [{"roster_id": 1, "owner_name": "a", "team_name": "T"}], "me": None},
     "error.html": {"code": 404, "message": "nope", "me": ME},
     "board.html": {
-        "me": ME, "week": 1, "wk": WK, "rows": [ROW], "my_row": ROW, "my_tokens": 2,
-        "my_blessed": False, "weeks": [1], "sealed": True, "targets": [ROW],
+        "me": ME, "week": 1, "wk": WK, "rows": [ROW, BLANK_ROW], "my_row": ROW,
+        "my_tokens": 2, "my_blessed": False, "weeks": [1], "sealed": True,
+        "preview": True, "can_cast": True, "most_cursed": MOST_CURSED,
+        "targets": [BLANK_ROW],
+    },
+    "board.html::locked": {
+        "_template": "board.html",
+        "me": ME, "week": 1, "wk": {**WK, "status": "locked"}, "rows": [ROW, BLANK_ROW],
+        "my_row": ROW, "my_tokens": 0, "my_blessed": True, "weeks": [1], "sealed": False,
+        "preview": False, "can_cast": False, "most_cursed": None, "targets": [BLANK_ROW],
     },
     "my_geese.html": {
-        "me": ME, "week": 1, "owners": OWNERS, "label": lambda o: (o or {}).get("team_name", "?"),
-        "lineup": [{"slot": "FLEX", "player_id": "p1", "full_name": "A Player", "position": "WR",
-                    "team": "TB", "injury_status": "Questionable", "proj_pts": 6.8,
-                    "actual_pts": None, "goose_prob": 0.12, "is_goose": None}],
+        "me": ME, "week": 1, "wk": WK, "owners": OWNERS,
+        "label": lambda o: (o or {}).get("team_name", "?"),
+        "preview": True, "proj_total": 153.4,
+        "team_risk": {"tier": "EXPOSED", "score": 1.36, "rate": 0.30, "at_risk": 2,
+                      "worst": "COOKED", "counts": {}},
+        # One live-preview row (the shape project_week returns) and one frozen
+        # snapshot row (the shape lineup_slots returns). The template has to
+        # render both, and they do not use the same key names.
+        "lineup": [{"slot": "FLEX", "player_id": "p1", "name": "A Player", "position": "WR",
+                    "nfl_team": "TB", "projection": 6.8, "tier": "GOOSE BAIT",
+                    "ratio": 0.55, "reason": None, "photo": "/x.jpg",
+                    "actual_pts": None, "is_goose": None},
+                   {"slot": "QB", "player_id": None, "name": None, "position": None,
+                    "nfl_team": None, "projection": 0.0, "tier": "COOKED", "ratio": None,
+                    "reason": "EMPTY SLOT", "photo": None,
+                    "actual_pts": 0.0, "is_goose": True}],
         "gooses": [{"week": 1, "slot": "FLEX", "player_id": "p1", "full_name": "A Player",
                     "position": "WR", "team": "TB", "points": 0.0, "empty_slot": False}],
         "chugs": [{"id": 1, "week": 1, "reason": "goose", "status": "owed",
                    "safe_pour": False, "rolled_from_week": None}],
         "curses": [{"id": 1, "week": 1, "caster_roster_id": 1, "target_roster_id": 2,
                     "status": "landed", "threshold_proj": 150.0, "actual_total": 140.0}],
-        "team_week": {"proj_total": 153.4, "actual_total": None, "chug_odds": 0.26},
+        "team_week": {"proj_total": 153.4, "actual_total": None,
+                      "risk_tier": "EXPOSED", "risk_score": 1.36, "at_risk": 2},
         "my_curse": {"threshold_proj": 153.4}, "tokens": 2,
         "blessing": {"expires_after": 2},
     },
@@ -85,25 +118,29 @@ CASES = {
             "games_live": 5, "games_final": 3, "games_total": 13, "feed_ok": True,
             "drinkers": [{"roster_id": 1, "owner": "Team 1", "avatar": None, "goosed": 2}],
             "goosed": [{"name": "A Player", "owner": "Team 1", "slot": "FLEX", "position": "WR",
-                        "nfl_team": "TB", "points": 0.0, "clock": "FINAL", "empty_slot": False,
-                        "goose_prob": 0.12, "player_id": "p1", "opponent": "ATL",
+                        "nfl_team": "TB", "points": 0.0, "clock": "FINAL", "empty_slot": False, "tier": "COOKED", "risk_reason": "OUT",
+                        "seconds_left": 0, "goose_prob": 0.108, "player_id": "p1", "opponent": "ATL",
                         "photo": "https://sleepercdn.com/content/nfl/players/thumb/p1.jpg"},
                        {"name": "Empty slot", "owner": "Team 1", "slot": "TE", "position": None,
                         "nfl_team": None, "points": None, "clock": "empty slot",
-                        "empty_slot": True, "goose_prob": 1.0, "player_id": None,
+                        "empty_slot": True, "tier": "COOKED", "risk_reason": "EMPTY SLOT",
+                        "seconds_left": None, "goose_prob": 0.108, "player_id": None,
                         "opponent": None, "photo": None}],
             "danger": [{"name": "B Player", "owner": "Team 2", "slot": "FLEX", "position": "RB",
                         "nfl_team": "KC", "points": 0.0, "clock": "Q4 2:10", "empty_slot": False,
-                        "goose_prob": 0.09, "player_id": "p2", "opponent": "DEN",
+                        "tier": "SOLID", "risk_reason": None, "seconds_left": 130,
+                        "goose_prob": 0.018, "player_id": "p2", "opponent": "DEN",
                         "photo": "https://sleepercdn.com/content/nfl/players/thumb/p2.jpg"}],
             "pending": [{"name": "C Player", "owner": "Team 3", "slot": "WR", "position": "WR",
                          "nfl_team": "SF", "points": 0.0, "clock": "not started",
-                         "empty_slot": False, "goose_prob": 0.04, "player_id": "p3",
+                         "empty_slot": False, "tier": "SHAKY", "risk_reason": None,
+                         "seconds_left": None, "goose_prob": 0.033, "player_id": "p3",
                          "opponent": "SEA",
                          "photo": "https://sleepercdn.com/content/nfl/players/thumb/p3.jpg"}],
             "cleared": [{"name": "D Player", "owner": "Team 4", "slot": "FLEX", "position": "WR",
-                         "nfl_team": "TB", "points": 6.4, "clock": "FINAL", "empty_slot": False,
-                         "goose_prob": 0.31, "player_id": "p4", "opponent": "ATL",
+                         "nfl_team": "TB", "points": 6.4, "clock": "FINAL", "empty_slot": False, "tier": "GOOSE BAIT", "risk_reason": None,
+                         "seconds_left": 0, "goose_prob": 0.059, "player_id": "p4",
+                         "opponent": "ATL",
                          "photo": "https://sleepercdn.com/content/nfl/players/thumb/p4.jpg"}],
             "rows": [], "per_owner": [],
         },
@@ -113,6 +150,7 @@ CASES = {
         "problem": "Could not reach Sleeper (Timeout).",
     },
     "standings.html": {
+        "most_cursed": MOST_CURSED,
         "me": ME,
         "rows": [{"rank": 1, "roster_id": 1, "team": "Team 1", "avatar": None, "chugs": 9,
                   "paid": 7, "owed": 2, "geese": 6, "from_curses": 3, "curses_landed": 2,
@@ -122,7 +160,7 @@ CASES = {
     },
 }
 
-for tab in ("chugs", "week", "curses", "rules"):
+for tab in ("chugs", "week", "curses", "rules", "demo", "reset"):
     CASES[f"admin.html::{tab}"] = {
         "me": ME, "tab": tab, "owners": OWNERS,
         "label": lambda o: (o or {}).get("team_name", "?"),
@@ -141,7 +179,22 @@ for tab in ("chugs", "week", "curses", "rules"):
                   {"key": "curse_stacking", "kind": "bool", "label": "Stacking",
                    "value": False, "default": "0"}],
         "now": 3, "lock_epoch": 1, "end_epoch": 2,
+        "demo_on": False, "demo": None,
     }
+
+# The demo tab renders differently depending on whether the seam is installed,
+# and the ON branch is the one that reads fields off the payload -- so it needs
+# its own case or half that tab is never compiled.
+CASES["admin.html::demo-on"] = {
+    **CASES["admin.html::demo"],
+    "demo_on": True,
+    "demo": {"week": 1, "starters": 132, "gooses": ["p1", "p2", "p3", "p4", "p5"]},
+}
+
+# Every template renders with a strict Undefined, so a key the app forgets to
+# pass fails here instead of on a phone. This is the setting that caught the
+# my_geese preview/snapshot key mismatch.
+STRICT = True
 
 
 def main() -> int:
@@ -150,8 +203,10 @@ def main() -> int:
     for name, ctx in CASES.items():
         tpl_name = name.split("::")[0]
         try:
+            ctx = {k: v for k, v in ctx.items() if k != "_template"}
             html = env.get_template(tpl_name).render(
-                season=2026, pending_chugs=1, app_version="0.1.0", **ctx
+                season=2026, pending_chugs=1, app_version="0.1.0",
+                demo_mode=False, tier_order=list(goose.TIERS), **ctx
             )
             check(name, len(html) > 200, f"only {len(html)} chars")
         except Exception as exc:

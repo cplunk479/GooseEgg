@@ -24,6 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_week_engine import FakeDB, to_sqlite  # noqa: E402
 
 import db_init  # noqa: E402
+import goose  # noqa: E402
+import sqlite3  # noqa: E402
 import sleeper  # noqa: E402
 import watch  # noqa: E402
 
@@ -60,10 +62,16 @@ class FakeSleeper:
         return self._games
 
 
-def build(starters, points, games, snapshot_probs=None):
+def build(starters, points, games, snapshot_tiers=None):
     db = FakeDB()
     for stmt in db_init.TABLES:
         db.execute(to_sqlite(stmt))
+    for stmt in db_init.MIGRATIONS:
+        try:
+            db.execute(to_sqlite(stmt.replace(" IF NOT EXISTS", "")))
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc):
+                raise
     db.execute(
         "INSERT INTO owners (league_id, season, roster_id, owner_name, team_name, is_admin, created_at) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s)", (LEAGUE, SEASON, 1, "conner", "Melange", 1, 0),
@@ -73,11 +81,12 @@ def build(starters, points, games, snapshot_probs=None):
             "INSERT INTO players_cache (player_id, full_name, position, team) VALUES (%s, %s, %s, %s)",
             (pid, name, pos, team),
         )
-    for idx, prob in (snapshot_probs or {}).items():
+    for idx, tier in (snapshot_tiers or {}).items():
         db.execute(
-            "INSERT INTO lineup_slots (season, week, roster_id, slot_index, slot, player_id, goose_prob) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (SEASON, WEEK, 1, idx, SLOTS[idx], starters[1][idx], prob),
+            "INSERT INTO lineup_slots (season, week, roster_id, slot_index, slot, player_id, "
+            "goose_prob, tier) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (SEASON, WEEK, 1, idx, SLOTS[idx], starters[1][idx],
+             goose.TIER_RATE[tier], tier),
         )
     db.commit()
     watch.sleeper = FakeSleeper(starters, points, games)
@@ -93,11 +102,19 @@ PLAYERS = {
     "pSCORED": ("Scored Guy", "WR", "TB"),
     "pRISKY": ("Risky Guy", "WR", "KC"),
 }
+# seconds_left mirrors what sleeper.game_state_by_team computes: 0 once a game
+# is over, None before kickoff, and (4 - quarter) * 15 min + the clock while
+# it is live. Kept explicit here so the sort is tested against stated numbers
+# rather than against the parser that produced them.
 GAMES = {
-    "TB": {"state": sleeper.FINAL, "clock": "FINAL", "quarter": None, "opponent": "ATL"},
-    "KC": {"state": sleeper.LIVE, "clock": "Q3 8:42", "quarter": 3, "opponent": "DEN"},
-    "MIN": {"state": sleeper.LIVE, "clock": "Q4 2:10", "quarter": 4, "opponent": "GB"},
-    "SF": {"state": sleeper.PRE, "clock": "not started", "quarter": None, "opponent": "SEA"},
+    "TB": {"state": sleeper.FINAL, "clock": "FINAL", "quarter": None, "opponent": "ATL",
+           "seconds_left": 0},
+    "KC": {"state": sleeper.LIVE, "clock": "Q3 8:42", "quarter": 3, "opponent": "DEN",
+           "seconds_left": 1422},
+    "MIN": {"state": sleeper.LIVE, "clock": "Q4 2:10", "quarter": 4, "opponent": "GB",
+            "seconds_left": 130},
+    "SF": {"state": sleeper.PRE, "clock": "not started", "quarter": None, "opponent": "SEA",
+           "seconds_left": None},
     # DET deliberately absent -- on bye
 }
 
@@ -140,11 +157,41 @@ def test_cleared_only_flags_the_feared():
     print("\ncleared only lists players the model actually worried about")
     starters = {1: ["pSCORED", "pRISKY"] + ["pSCORED"] * 9}
     points = {1: [10.0, 6.0] + [10.0] * 9}
-    db = build(starters, points, GAMES, snapshot_probs={0: 0.02, 1: 0.31})
+    db = build(starters, points, GAMES,
+               snapshot_tiers={0: goose.SAFE, 1: goose.BAIT})
     d = watch.build(db, LEAGUE, SEASON, WEEK)
     ids = [r["player_id"] for r in d["cleared"]]
-    check("a 31% starter who scored shows as cleared", "pRISKY" in ids, str(ids))
-    check("a 2% starter who scored is not noise", ids.count("pSCORED") == 0, str(ids))
+    check("a GOOSE BAIT starter who scored shows as cleared", "pRISKY" in ids, str(ids))
+    check("a SAFE starter who scored is not noise", ids.count("pSCORED") == 0, str(ids))
+    db.close()
+
+
+def test_sorts_by_time_left():
+    """
+    The ordering rule: closest to settled first, not-yet-kicked-off last.
+
+    The trap this guards is that a game with no kickoff has `seconds_left` of
+    None, and a naive ascending sort treats None as smaller than everything --
+    which would put the 8pm game above the one with two minutes left.
+    """
+    print("\nrows sort by game time remaining, with 'yet to play' last")
+    starters = {1: ["pQ4", "pLIVE", "pPRE", "pBYE"] + ["pSCORED"] * 7}
+    points = {1: [0.0, 0.0, 0.0, 0.0] + [9.0] * 7}
+    db = build(starters, points, GAMES)
+    d = watch.build(db, LEAGUE, SEASON, WEEK)
+
+    order = [r["player_id"] for r in d["pending"]]
+    check("the Q3 game (12 min left) outranks a game that has not kicked off",
+          order.index("pLIVE") < order.index("pPRE"), str(order))
+    check("a bye-week player sorts to the very bottom",
+          order.index("pBYE") > order.index("pLIVE"), str(order))
+    check("seconds_left is carried onto every row",
+          all("seconds_left" in r for r in d["rows"]))
+    check("a finished game reports zero seconds left",
+          all(r["seconds_left"] == 0 for r in d["rows"] if r["nfl_team"] == "TB"))
+    check("a game with no kickoff reports None, not zero",
+          all(r["seconds_left"] is None for r in d["rows"] if r["nfl_team"] == "SF"),
+          str([r["seconds_left"] for r in d["rows"] if r["nfl_team"] == "SF"]))
     db.close()
 
 
@@ -234,6 +281,7 @@ def test_game_state_parsing():
 def main() -> int:
     test_classification()
     test_cleared_only_flags_the_feared()
+    test_sorts_by_time_left()
     test_drinkers_and_totals()
     test_feed_failure_is_visible()
     test_clock_formatting()

@@ -20,6 +20,8 @@ from flask import (
 )
 
 import db as dbmod
+import demo as demomod
+import filters as filtersmod
 import goose
 import players_sync
 import settings as settingsmod
@@ -42,8 +44,21 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-change-me")
 # --------------------------------------------------------------------------
 
 def get_db():
+    """
+    Open the request's connection and, on the way, point sleeper.py at the demo
+    snapshot if demo mode is on.
+
+    Installing it HERE rather than in a before_request hook keeps the two in
+    lockstep: the seam is only ever switched by code that also has a database
+    to read the flag from, so there is no window where a worker serves demo
+    scores because a previous request left the seam installed.
+    """
     if not hasattr(request, "_goose_db"):
         request._goose_db = dbmod.open_wrapped()
+        try:
+            demomod.install(request._goose_db)
+        except Exception:
+            sleeper.set_demo(None)      # a broken snapshot must never take the app down
     return request._goose_db
 
 
@@ -56,24 +71,11 @@ def _close_db(exc):
         db.close()
 
 
-@app.template_filter("odds")
-def odds_filter(probability):
-    """0.26 -> '+285'. Empty rather than a fake price when we have no number."""
-    if probability is None:
-        return "--"
-    return goose.american_price(float(probability))
-
-
-@app.template_filter("pct")
-def pct_filter(probability):
-    if probability is None:
-        return "--"
-    return f"{float(probability) * 100:.0f}%"
-
-
-@app.template_filter("pts")
-def pts_filter(value):
-    return "--" if value is None else f"{float(value):.1f}"
+# Registered from filters.py so app.py and tests/test_templates.py can never
+# hold two different definitions of the same filter -- which is exactly how a
+# renamed filter once shipped green and broke a page.
+for _name, _fn in filtersmod.FILTERS.items():
+    app.add_template_filter(_fn, _name)
 
 
 def current_owner(db):
@@ -131,6 +133,8 @@ def inject_globals():
         "me": owner,
         "season": SEASON,
         "pending_chugs": pending,
+        "demo_mode": bool(sleeper.demo_payload()),
+        "tier_order": list(goose.TIERS),
         "app_version": open(os.path.join(os.path.dirname(__file__), "VERSION")).read().strip(),
     }
 
@@ -177,6 +181,76 @@ def logout():
 # board
 # --------------------------------------------------------------------------
 
+def snapshot_or_preview(db, week: int, wk_row) -> tuple[dict, bool]:
+    """
+    The week's numbers, and whether they are frozen.
+
+    Returns (by_roster, is_preview). A locked or settled week reads the
+    SNAPSHOT out of the database -- that is the version curses are graded
+    against and it must never be recomputed for display. Any earlier week is
+    computed live from Sleeper so the board is not blank all week, and comes
+    back flagged so every screen can say out loud that the numbers still move.
+
+    A preview failure is not fatal. Sleeper being down before kickoff should
+    cost you the preview, not the page.
+    """
+    if wk_row and wk_row["status"] in ("locked", "final"):
+        rows = db.execute(
+            "SELECT * FROM team_weeks WHERE season = %s AND week = %s", (SEASON, week)
+        ).fetchall()
+        if rows:
+            return {r["roster_id"]: dict(r) for r in rows}, False
+
+    try:
+        projected = engine.project_week(db, LEAGUE_ID, SEASON, week)
+    except Exception:
+        return {}, True
+
+    out = {}
+    for rid, bucket in projected["rosters"].items():
+        risk = bucket["risk"]
+        out[rid] = {
+            "roster_id": rid,
+            "proj_total": bucket["proj_total"],
+            "risk_tier": risk["tier"],
+            "risk_score": risk["score"],
+            "at_risk": risk["at_risk"],
+            "chug_odds": risk["rate"],
+            "actual_total": None,
+            "goose_count": 0,
+            "slots": bucket["slots"],
+        }
+    return out, True
+
+
+def most_cursed(db, owners: dict) -> dict | None:
+    """
+    Season leader in curses ABSORBED -- the banner. Counts every curse aimed at
+    an owner whether it landed, was survived or was blocked, because being
+    picked on is the thing the banner is about, not the outcome.
+
+    Returns None below two curses: crowning somebody "most cursed" off a single
+    curse in week 1 is noise, not a story.
+    """
+    rows = db.execute(
+        "SELECT target_roster_id AS rid, COUNT(*) AS n, "
+        "COUNT(*) FILTER (WHERE status = 'landed') AS landed "
+        "FROM curses WHERE season = %s GROUP BY target_roster_id "
+        "ORDER BY n DESC, landed DESC LIMIT 1",
+        (SEASON,),
+    ).fetchall()
+    if not rows or rows[0]["n"] < 2:
+        return None
+    top = rows[0]
+    return {
+        "roster_id": top["rid"],
+        "team": label(owners.get(top["rid"])),
+        "avatar": (owners.get(top["rid"]) or {}).get("avatar"),
+        "count": top["n"],
+        "landed": top["landed"] or 0,
+    }
+
+
 @app.route("/")
 def board():
     db = get_db()
@@ -188,12 +262,7 @@ def board():
     wk = engine.ensure_week(db, SEASON, week)
     db.commit()
     owners = owners_map(db)
-
-    tw = {
-        r["roster_id"]: r for r in db.execute(
-            "SELECT * FROM team_weeks WHERE season = %s AND week = %s", (SEASON, week)
-        ).fetchall()
-    }
+    tw, preview = snapshot_or_preview(db, week, wk)
 
     # Sealed curses: while the week is still open nobody sees who is targeting
     # whom, except for their own. Fails CLOSED -- if the setting can't be read
@@ -217,25 +286,38 @@ def board():
             "caster": label(owners.get(c["caster_roster_id"])) if visible else None,
             "mine": c["caster_roster_id"] == me["roster_id"],
             "sealed": not visible,
+            "threshold": c["threshold_proj"],
         })
 
     rows = []
     for rid, owner in owners.items():
-        t = tw.get(rid)
+        t = tw.get(rid) or {}
+        mine = [c for c in curse_by_target.get(rid, []) if c["status"] == "cast"]
         rows.append({
             "roster_id": rid,
             "team": label(owner),
             "owner_name": owner["owner_name"],
             "avatar": owner["avatar"],
-            "chug_odds": (t or {}).get("chug_odds"),
-            "proj_total": (t or {}).get("proj_total"),
-            "actual_total": (t or {}).get("actual_total"),
-            "goose_count": (t or {}).get("goose_count") or 0,
+            "proj_total": t.get("proj_total"),
+            "actual_total": t.get("actual_total"),
+            "goose_count": t.get("goose_count") or 0,
+            "risk_tier": t.get("risk_tier"),
+            "risk_score": t.get("risk_score"),
+            "risk_rate": goose.TEAM_RATE.get(t.get("risk_tier")),
+            "at_risk": t.get("at_risk") or 0,
             "curses": curse_by_target.get(rid, []),
+            "cast_on_them": len(mine),
             "blessed": rid in blessed,
             "is_me": rid == me["roster_id"],
         })
-    rows.sort(key=lambda r: (r["chug_odds"] is None, -(r["chug_odds"] or 0)))
+
+    # Worst lineup first. Teams with no numbers at all sink rather than float:
+    # "we don't know yet" is not the top of a risk board.
+    rows.sort(key=lambda r: (
+        r["risk_tier"] is None,
+        -goose.TEAM_INDEX.get(r["risk_tier"], -1),
+        -(r["risk_score"] or 0),
+    ))
 
     my_tokens = engine.unspent_tokens(db, SEASON, me["roster_id"])
     my_row = next((r for r in rows if r["is_me"]), None)
@@ -247,7 +329,9 @@ def board():
     return render_template(
         "board.html", week=week, wk=wk, rows=rows, my_row=my_row,
         my_tokens=len(my_tokens), my_blessed=me["roster_id"] in blessed,
-        weeks=weeks, sealed=sealed,
+        weeks=weeks, sealed=sealed, preview=preview,
+        most_cursed=most_cursed(db, owners),
+        can_cast=wk["status"] == "open" and len(my_tokens) > 0,
         targets=[r for r in rows if not r["is_me"]],
     )
 
@@ -290,13 +374,40 @@ def my_geese():
         return redirect(url_for("login"))
     rid = me["roster_id"]
     week = request.args.get("week", type=int) or active_week(db)
+    wk = engine.ensure_week(db, SEASON, week)
+    db.commit()
 
-    lineup = db.execute(
-        "SELECT l.*, p.full_name, p.position, p.team, p.injury_status "
-        "FROM lineup_slots l LEFT JOIN players_cache p ON p.player_id = l.player_id "
-        "WHERE l.season = %s AND l.week = %s AND l.roster_id = %s ORDER BY l.goose_prob DESC",
-        (SEASON, week, rid),
-    ).fetchall()
+    lineup, preview, team_risk = [], False, None
+    if wk["status"] in ("locked", "final"):
+        lineup = [dict(r) for r in db.execute(
+            "SELECT l.*, p.full_name, p.position, p.team, p.injury_status "
+            "FROM lineup_slots l LEFT JOIN players_cache p ON p.player_id = l.player_id "
+            "WHERE l.season = %s AND l.week = %s AND l.roster_id = %s ORDER BY l.slot_index",
+            (SEASON, week, rid),
+        ).fetchall()]
+        for row in lineup:
+            row["photo"] = (
+                f"https://sleepercdn.com/content/nfl/players/thumb/{row['player_id']}.jpg"
+                if row.get("player_id") else None
+            )
+            row["projection"] = row.get("proj_pts")
+            row["name"] = row.get("full_name")
+            row["nfl_team"] = row.get("team")
+            row["ratio"] = row.get("proj_ratio")
+            row["reason"] = row.get("risk_reason")
+        team_risk = goose.team_risk([r.get("tier") for r in lineup])
+
+    if not lineup:
+        # Nothing frozen yet -- show the live version so an owner can look at
+        # his week before kickoff instead of an empty page. Labelled as moving.
+        preview = True
+        try:
+            bucket = engine.project_week(db, LEAGUE_ID, SEASON, week)["rosters"].get(rid)
+        except Exception:
+            bucket = None
+        if bucket:
+            lineup = bucket["slots"]
+            team_risk = bucket["risk"]
 
     gooses = db.execute(
         "SELECT g.*, p.full_name, p.position, p.team FROM gooses g "
@@ -328,9 +439,14 @@ def my_geese():
         (SEASON, week, rid),
     ).fetchone()
 
+    proj_total = (tw or {}).get("proj_total")
+    if proj_total is None and lineup:
+        proj_total = round(sum(float(r.get("projection") or 0) for r in lineup), 2)
+
     return render_template(
-        "my_geese.html", week=week, lineup=lineup, gooses=gooses, chugs=chugs,
+        "my_geese.html", week=week, wk=wk, lineup=lineup, gooses=gooses, chugs=chugs,
         curses=curses, owners=owners, team_week=tw, my_curse=my_curse,
+        preview=preview, team_risk=team_risk, proj_total=proj_total,
         tokens=len(engine.unspent_tokens(db, SEASON, rid)),
         blessing=engine.active_blessing(db, SEASON, rid, week),
         label=label,
@@ -437,7 +553,8 @@ def standings():
 
     assassin = max(rows, key=lambda r: r["curses_landed"]) if rows else None
     teflon = min(rows, key=lambda r: r["geese"]) if rows else None
-    return render_template("standings.html", rows=rows, assassin=assassin, teflon=teflon)
+    return render_template("standings.html", rows=rows, assassin=assassin, teflon=teflon,
+                           most_cursed=most_cursed(db, owners))
 
 
 # --------------------------------------------------------------------------
@@ -471,11 +588,13 @@ def admin():
     lock_epoch = wk["lock_epoch"] or sleeper.week_lock_epoch(SEASON, week)
     end_epoch = wk["end_epoch"] or sleeper.week_end_epoch(SEASON, week)
 
+    payload = sleeper.demo_payload()
     return render_template(
         "admin.html", tab=tab, owners=owners, label=label, chugs=chugs,
         weeks=weeks, curses=curses, blessings=blessings, active=week, wk=wk,
         rules=settingsmod.all_tunables(db), now=int(time.time()),
         lock_epoch=lock_epoch, end_epoch=end_epoch,
+        demo_on=bool(payload), demo=payload,
     )
 
 
@@ -538,6 +657,11 @@ def admin_week():
         flash(f"Locked. {r.get('lineups', 0)} lineups snapshotted, "
               f"{r.get('curses_frozen', 0)} curses frozen." if r["ok"] else r["reason"],
               "success" if r["ok"] else "error")
+    elif action == "unlock":
+        r = engine.unlock_week(db, SEASON, week, me["roster_id"])
+        flash(f"Week {week} reopened for curses. {r.get('thresholds_held', 0)} frozen "
+              f"projection(s) held — late curses are graded against the kickoff number."
+              if r["ok"] else r["reason"], "success" if r["ok"] else "error")
     elif action == "settle":
         r = engine.settle_week(db, LEAGUE_ID, SEASON, week, force=True)
         flash(f"Settled. {r.get('gooses', 0)} gooses, {r.get('curses_landed', 0)} curses landed."
@@ -606,6 +730,104 @@ def admin_curse():
 
 
 # --------------------------------------------------------------------------
+# admin -- danger zone and demo mode
+# --------------------------------------------------------------------------
+
+def _typed_confirmation(expected: str) -> bool:
+    """
+    A reset is confirmed by TYPING it, not by clicking OK.
+
+    A browser confirm() dialog would be one distracted click away from wiping a
+    live season, and it also blocks automation dead. Making someone type
+    "RESET WEEK 3" costs three seconds and cannot be done by accident.
+    """
+    return (request.form.get("confirm") or "").strip().upper() == expected.upper()
+
+
+@app.route("/admin/reset", methods=["POST"])
+def admin_reset():
+    db = get_db()
+    me = require_admin(db)
+    if me is None:
+        abort(403)
+    action = request.form.get("action")
+
+    if action == "reset-week":
+        week = request.form.get("week", type=int) or active_week(db)
+        if not _typed_confirmation(f"RESET WEEK {week}"):
+            flash(f'Type "RESET WEEK {week}" exactly to confirm.', "error")
+            return redirect(url_for("admin", tab="reset"))
+        r = engine.reset_week(db, SEASON, week)
+        flash(f"Week {week} cleared — {r['gooses']} goose(s), {r['chugs']} chug(s), "
+              f"{r['lineups']} lineup slot(s) removed; {r['curses_rewound']} curse(s) "
+              f"rewound to cast.", "success")
+
+    elif action == "reset-season":
+        if not _typed_confirmation(f"RESET SEASON {SEASON}"):
+            flash(f'Type "RESET SEASON {SEASON}" exactly to confirm.', "error")
+            return redirect(url_for("admin", tab="reset"))
+        r = engine.reset_season(db, SEASON)
+        flash(f"Season {SEASON} cleared back to an empty board. Owners, PINs and "
+              f"rules were left alone.", "success")
+    else:
+        flash("Unknown action.", "error")
+    return redirect(url_for("admin", tab="reset"))
+
+
+@app.route("/admin/demo", methods=["POST"])
+def admin_demo():
+    """
+    Demo mode on and off. See demo.py for what it does and does not touch.
+
+    Building the snapshot has to happen with the seam OFF, so the order here is
+    load-bearing: clear the seam, build against the real API, seed the props,
+    and only then raise the flag.
+    """
+    db = get_db()
+    me = require_admin(db)
+    if me is None:
+        abort(403)
+    action = request.form.get("action")
+    week = request.form.get("week", type=int) or active_week(db)
+
+    if action == "demo-on":
+        try:
+            settingsmod.set_bool(db, demomod.FLAG, False)
+            db.commit()
+            payload = demomod.build(db, LEAGUE_ID, SEASON, week)
+            rosters = engine.roster_ids(db, LEAGUE_ID, SEASON)
+            demomod.clear_props(db)
+            props = demomod.seed_props(db, SEASON, week, rosters)
+            settingsmod.set_bool(db, demomod.FLAG, True)
+            db.commit()
+            demomod.install(db)
+            flash(f"Demo mode on — week {week}, {payload['starters']} starters, "
+                  f"{len(payload['gooses'])} planted gooses, "
+                  f"{props.get('curses', 0)} curse(s) in play. Nothing real was touched.",
+                  "success")
+        except Exception as exc:
+            db.rollback()
+            settingsmod.set_bool(db, demomod.FLAG, False)
+            db.commit()
+            sleeper.set_demo(None)
+            flash(f"Could not build the demo ({type(exc).__name__}). Demo mode left off.",
+                  "error")
+
+    elif action == "demo-off":
+        removed = demomod.clear_props(db)
+        settingsmod.set_bool(db, demomod.FLAG, False)
+        settingsmod.set_raw(db, demomod.PAYLOAD, "")
+        db.commit()
+        sleeper.set_demo(None)
+        sleeper.clear_cache()
+        flash(f"Demo mode off — {sum(removed.values())} demo row(s) removed, "
+              f"live Sleeper data restored.", "success")
+    else:
+        flash("Unknown action.", "error")
+    return redirect(url_for("admin", tab="demo"))
+
+
+# --------------------------------------------------------------------------
 # automation
 # --------------------------------------------------------------------------
 
@@ -632,6 +854,15 @@ def poll():
     week = active_week(db)
     wk = engine.ensure_week(db, SEASON, week)
     db.commit()
+
+    # Demo mode hands this app a Sunday where four games are already final. If
+    # auto-settle ran against that it would raise REAL chugs, mint REAL tokens
+    # and resolve REAL curses off invented scores -- the one way a demo that
+    # writes nothing could still wreck a season. Everything that changes state
+    # stops here while the seam is installed; the read-only screens carry on.
+    if sleeper.demo_payload():
+        done.append("demo:automation-paused")
+        return {"ok": True, "week": week, "demo": True, "did": done}
 
     if settingsmod.get_bool(db, "auto_lock", True) and wk["status"] == "open":
         lock_at = wk["lock_epoch"] or sleeper.week_lock_epoch(SEASON, week)

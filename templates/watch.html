@@ -93,7 +93,7 @@
     {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div style="flex: 1; min-width: 0;">
       <div class="w-nm">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }}{% if r.slot %} &middot; {{ r.slot }}{% endif %}{% if r.position %} &middot; {{ r.position }}-{{ r.nfl_team }}{% endif %}</div>
+      <div class="w-sub">{{ r.owner }}{% if r.slot %} &middot; {{ r.slot }}{% endif %}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</div>
     </div>
     <div>
       <div class="w-pts" style="color: var(--flame);">{% if r.empty_slot %}—{% else %}{{ r.points | pts }}{% endif %}</div>
@@ -115,32 +115,10 @@
     {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div style="flex: 1; min-width: 0;">
       <div class="w-nm">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.position %} &middot; {{ r.position }}-{{ r.nfl_team }}{% if r.opponent %} vs {{ r.opponent }}{% endif %}{% endif %}</div>
+      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% if r.opponent %} vs {{ r.opponent }}{% endif %}{% endif %}</div>
     </div>
     <div>
       <div class="w-pts" style="color: var(--ember);">{{ r.points | pts }}</div>
-      <div class="w-clk">{{ r.clock }}</div>
-    </div>
-  </div>
-  {% endfor %}
-{% endif %}
-
-{% if data.pending %}
-  <div class="grouphead">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
-    <div class="gh-t" style="color: var(--text2);">Yet to play</div>
-    <div style="margin-left: auto; font-size: 10px; color: var(--text2);">{{ data.pending | length }}</div>
-  </div>
-  {% for r in data.pending %}
-  <div class="w-row">
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.7" style="flex-shrink: 0;"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
-    {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
-    <div style="flex: 1; min-width: 0;">
-      <div class="w-nm" style="color: var(--text2);">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.position %} &middot; {{ r.position }}-{{ r.nfl_team }}{% endif %}</div>
-    </div>
-    <div>
-      <div class="w-pts" style="color: var(--text3);">{{ r.goose_prob | pct }}</div>
       <div class="w-clk">{{ r.clock }}</div>
     </div>
   </div>
@@ -159,10 +137,32 @@
     {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div style="flex: 1; min-width: 0;">
       <div class="w-nm" style="color: var(--text2);">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }} &middot; was {{ r.goose_prob | pct }}</div>
+      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}{% if r.tier %} &middot; was {{ r.tier | lower }}{% endif %}</div>
     </div>
     <div>
       <div class="w-pts" style="color: var(--jade);">{{ r.points | pts }}</div>
+      <div class="w-clk">{{ r.clock }}</div>
+    </div>
+  </div>
+  {% endfor %}
+{% endif %}
+
+{% if data.pending %}
+  <div class="grouphead">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+    <div class="gh-t" style="color: var(--text2);">Yet to play &middot; early</div>
+    <div style="margin-left: auto; font-size: 10px; color: var(--text2);">{{ data.pending | length }}</div>
+  </div>
+  {% for r in data.pending %}
+  <div class="w-row">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.7" style="flex-shrink: 0;"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+    {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
+    <div style="flex: 1; min-width: 0;">
+      <div class="w-nm" style="color: var(--text2);">{{ r.name }}</div>
+      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</div>
+    </div>
+    <div style="text-align: right;">
+      {% if r.tier %}<span class="tier tier-{{ r.tier | tierclass }}">{{ r.risk_reason or r.tier }}</span>{% endif %}
       <div class="w-clk">{{ r.clock }}</div>
     </div>
   </div>
@@ -177,6 +177,9 @@
 
 <div style="padding: 16px 14px 24px;">
   <div class="caption" style="line-height: 1.55;">
+    Rows are ordered by how much game time is left, so whatever is closest to being settled
+    sits at the top of its group and anything that has not kicked off falls to the bottom.
+    <br><br>
     This board reads live scores. It is a view, not a verdict &mdash; the week is graded
     from final scores when it settles, and settling is what actually raises a chug.
   </div>

@@ -4,9 +4,8 @@ goose.py
 The engine. Two jobs, kept deliberately free of Flask and psycopg2 so both are
 testable with plain python and no database:
 
-  1. DETECTION  -- did a starter lay a goose egg (settled fact, after the game)
-  2. PREDICTION -- how likely is one, and how likely is the owner to chug
-                   (a forecast, before the game)
+  1. DETECTION -- did a starter lay a goose egg (settled fact, after the game)
+  2. RISK      -- how exposed is this starter, and this lineup (before the game)
 
 The league rule, locked 2026-09-06
 ----------------------------------
@@ -14,56 +13,59 @@ A goose is a starting-lineup player who scores **<= 0**, not exactly 0. A
 negative score (fumble lost, a QB's interceptions) is still a goose. An EMPTY
 starting slot is also a goose -- neglect is not an excuse.
 
-Why prediction is an availability model, not a performance model
----------------------------------------------------------------
-Dynasty Dons scoring is generous: full PPR, 7-point TDs, 0.1/yard rushing and
-receiving, plus 0.5 per rush/rec first down and a 0.5 TE premium. A single
-catch is worth 1.0 and the first down it earns another 0.5. So a 0.00 almost
-never means "bad game" -- it means the player did not play, or touched the ball
-zero times. That is why the model reads bye weeks, inactives and injury
-designations FIRST, and only falls through to a statistical base rate for
-healthy players who are expected to play.
+Why this is tiers now, and not a percentage
+-------------------------------------------
+v0.4 showed a per-player goose PERCENTAGE and a team CHUG PRICE. Both were
+honest numbers and both were useless to look at, for the same reason: the
+model's strongest signal is availability. A player who is out, on bye or
+projected near zero is a near-certain goose; every healthy starter is a 1-4%
+shot. So the board was a wall of 2%s occasionally interrupted by a 90%, and
+what it was really displaying was the injury report. The commissioner's read
+was exactly right -- "it's tied to injury risk, which doesn't make sense."
 
-Where the base rates come from
+The rework separates the two things that were tangled together:
+
+  AVAILABILITY is now a LABEL, not a hidden multiplier. Out, bye, doubtful and
+  empty slots say so in as many words and drop straight to the worst tier.
+  Nobody needs a probability to understand "he isn't playing."
+
+  QUALITY is now a TIER, measured the way the commissioner asked for it: where
+  does this player's projection fall against the average starter projection at
+  his position this week? A 9-point projection is a fine week for a tight end
+  and a disaster for a quarterback, so the raw number was never comparable
+  across a lineup. The ratio is.
+
+Where the cut points come from
 ------------------------------
-Measured, not guessed. 40,217 starter-slots across every league in
-Scripts/files/fantasy.db (2021-2025, weeks 1-17, QB/RB/WR/TE), banded by the
-player's average points in that season's PRIOR weeks -- the closest thing in
-that dataset to a projection. Rates are P(points <= 0), matching the league
-rule above.
+Measured, not guessed -- see analysis/fit_tiers.py, which regenerates this
+table. 35,144 starter-slots across 22 leagues, 2021-2025, weeks 3-17. The
+"projection" there is the player's average points in that season's prior weeks,
+the closest thing that dataset has to a forward projection.
 
-    pos  band      n       P(goose)
-    QB   0-4       158      5.7%
-    QB   4-8       155      3.9%
-    QB   8-12      338      4.4%   <- clamped to 3.9, see _monotonic() below
-    QB   12+      4619      1.1%
-    RB   0-4       495     10.3%
-    RB   4-8      1352      4.4%
-    RB   8-12     2506      1.7%
-    RB   12+      6055      0.8%
-    WR   0-4       499     21.0%
-    WR   4-8      1907      8.5%
-    WR   8-12     4316      5.0%
-    WR   12+      8002      2.3%
-    TE   0-4       235     13.6%
-    TE   4-8      1162      8.3%
-    TE   8-12     2076      4.9%
-    TE   12+      1422      2.9%
+    tier          ratio to position avg    share    P(goose)   Dynasty Dons
+    SAFE          >= 1.25                  22.6%      1.1%        0.9%
+    SOLID         0.90 - 1.25              38.9%      1.5%        1.8%
+    SHAKY         0.60 - 0.90              24.9%      3.1%        3.3%
+    GOOSE BAIT    0.35 - 0.60               9.1%      5.8%        5.9%
+    COOKED        < 0.35                    4.4%     11.3%       10.8%
 
-Sanity check for launch: run these over a real Dynasty Dons week and the
-league-wide expected goose count should land near 3.6 (the measured rate is
-2.7% of starter-slots, 27% of team-weeks). If week 1 predicts 11, something is
-wrong -- do not ship it.
+Monotonic at every position, and it holds in Dynasty Dons on its own 3,925
+slots. That is a 10x spread between the top and bottom tier, against the ~2x
+of useful spread the old percentage had once availability was stripped out.
 
-Replace this table with the app's own stored projections once a season of them
-exists; prior-week average is a stand-in for a projection, not a projection.
+One thing the tiers deliberately do NOT do
+------------------------------------------
+They do not equalise positions. A SAFE tight end still gooses ~2.6% where a
+SAFE quarterback gooses ~0%, because tight ends simply goose more. The tier
+answers "is this player weak FOR HIS POSITION"; the team risk rating below is
+what accounts for the mix.
 """
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 # --------------------------------------------------------------------------
-# Detection
+# Detection -- unchanged, and still the only thing that settles a week
 # --------------------------------------------------------------------------
 
 EMPTY_SLOT_IDS = (None, "", "0", 0)
@@ -113,190 +115,226 @@ def find_gooses(starters: Sequence, starters_points: Sequence, slots: Sequence =
 
 
 # --------------------------------------------------------------------------
-# Prediction
+# Player risk tiers
 # --------------------------------------------------------------------------
 
-_BANDS = (4.0, 8.0, 12.0, float("inf"))
+SAFE, SOLID, SHAKY, BAIT, COOKED = "SAFE", "SOLID", "SHAKY", "GOOSE BAIT", "COOKED"
 
-_RAW_BASE_RATES = {
-    "QB": (0.057, 0.039, 0.044, 0.011),
-    "RB": (0.103, 0.044, 0.017, 0.008),
-    "WR": (0.210, 0.085, 0.050, 0.023),
-    "TE": (0.136, 0.083, 0.049, 0.029),
+# Best to worst. Index into this is the tier's severity everywhere else.
+TIERS = (SAFE, SOLID, SHAKY, BAIT, COOKED)
+TIER_INDEX = {name: i for i, name in enumerate(TIERS)}
+
+# ratio-to-position-average cut points, worst first. See the module docstring.
+RATIO_CUTS = ((0.35, COOKED), (0.60, BAIT), (0.90, SHAKY), (1.25, SOLID))
+
+# How much each tier contributes to a lineup's risk rating. COOKED jumps to 5
+# rather than continuing 1-2-3-4 on purpose: one player who is not playing is
+# worse news for a lineup than two merely weak ones, and the team bands below
+# were fitted with these weights.
+TIER_WEIGHT = {SAFE: 0, SOLID: 1, SHAKY: 2, BAIT: 3, COOKED: 5}
+
+# Measured P(goose) per tier, Dynasty Dons 2024-2025. Shown in tooltips and
+# used where something downstream still wants a number (Goose Watch sorts on
+# it). Not displayed as the headline -- that was the old mistake.
+TIER_RATE = {SAFE: 0.010, SOLID: 0.018, SHAKY: 0.033, BAIT: 0.059, COOKED: 0.108}
+
+TIER_BLURB = {
+    SAFE:   "well above the position bar",
+    SOLID:  "around the position bar",
+    SHAKY:  "under the position bar",
+    BAIT:   "well under the position bar",
+    COOKED: "barely projected at all",
 }
 
-
-def _monotonic(rates: tuple) -> tuple:
-    """
-    A higher projection must never carry MORE goose risk. QB 8-12 measured
-    4.4% against 3.9% for 4-8, which is a 338-sample wobble rather than a real
-    effect, and it would show up in the app as a better quarterback pricing
-    worse. Clamp each band to at most the band below it.
-    """
-    out = []
-    ceiling = 1.0
-    for r in rates:
-        r = min(r, ceiling)
-        out.append(r)
-        ceiling = r
-    return tuple(out)
-
-
-BASE_RATES = {pos: _monotonic(rates) for pos, rates in _RAW_BASE_RATES.items()}
-DEFAULT_POSITION = "WR"  # the most common starter here, and the most goose-prone
-
-# What to use when there is NO projection at all -- a week-1 rookie, a player
-# the feed doesn't cover. The population rate for the position, measured over
-# the same 40k starter-slots.
-#
-# The obvious choice was the lowest band (0-4), on the reasoning that an
-# unknown player is a bad player. That is wrong and the calibration test caught
-# it: a starter with no history is usually a rookie somebody drafted on
-# purpose, and those slots goose at 1.9%, not the 21% the bottom WR band would
-# have charged them. 269 such slots were predicting 56 gooses against 5 real
-# ones, which was most of the model's original over-prediction.
-UNKNOWN_PROJECTION_RATES = {"QB": 0.015, "RB": 0.018, "WR": 0.043, "TE": 0.053}
-
-# Dynasty Dons gooses LESS than the cross-league population the base rates were
-# measured on, and for a real reason: this league has the most generous scoring
-# of the set (full PPR, 7-point TDs, 0.5 per rush/rec first down, TE premium),
-# so it takes less production to escape zero. Several of the leagues in that
-# sample are half-PPR with no bonuses, where a quiet game lands on zero far
-# more easily.
-#
-# Rather than refit the whole table on the ~3.7k Dynasty Dons slots -- too thin
-# to band four ways by position -- keep the cross-league SHAPE and scale it by
-# one factor fitted to this league's own measured rate. Fitted 2026-09-06
-# against 2024 + 2025 weeks 1-14: raw model 5.11 gooses/week against 3.89
-# actual, so 3.89/5.11 = 0.762.
-#
-# Refit this whenever the league changes scoring, and re-run tests/test_goose.py.
-LEAGUE_CALIBRATION = 0.762
-
-# Statuses that mean "will not play". Sleeper uses these on the player record.
-OUT_STATUSES = {"Out", "IR", "PUP", "Sus", "NA", "DNR", "Doubtful", "COV"}
+# Statuses that mean "will not play".
 OUT_HARD = {"Out", "IR", "PUP", "Sus", "NA", "DNR", "COV"}
 
-P_EMPTY_SLOT = 1.00
-P_BYE = 0.98
-P_OUT = 0.90
-P_DOUBTFUL = 0.65
-P_ZERO_PROJECTION = 0.55   # Sleeper projects ~0 for players it expects not to play.
-                           # The one number here that is NOT measured -- the
-                           # backtest has no forward projections to fit it
-                           # against. It is a backstop for when injury_status
-                           # is missing; revisit after a season of stored
-                           # projections makes it checkable.
-QUESTIONABLE_MULTIPLIER = 2.5
-QUESTIONABLE_FLOOR = 0.15
+# Sleeper projects ~0 for a player it expects not to dress. Below this, the
+# projection is not a weak forecast, it is an absence.
 ZERO_PROJECTION_THRESHOLD = 1.0
 
-
-def base_rate(position: str | None, projection: float | None) -> float:
-    """The uncalibrated cross-league rate. See LEAGUE_CALIBRATION for the scaling."""
-    pos = (position or "").upper()
-    if projection is None:
-        return UNKNOWN_PROJECTION_RATES.get(pos, UNKNOWN_PROJECTION_RATES[DEFAULT_POSITION])
-    rates = BASE_RATES.get(pos, BASE_RATES[DEFAULT_POSITION])
-    proj = float(projection)
-    for i, edge in enumerate(_BANDS):
-        if proj < edge:
-            return rates[i]
-    return rates[-1]
+# Used only when a position has too few starters league-wide to average -- a
+# broken feed, or a week where nobody started a tight end. Dynasty Dons starter
+# means, 2024-2025 (PPR base; the league's bonuses push live projections
+# higher, which is fine, this is a floor to divide by, not a target).
+FALLBACK_POSITION_AVG = {"QB": 16.4, "RB": 12.8, "WR": 11.5, "TE": 9.6}
+MIN_POSITION_SAMPLE = 4
+DEFAULT_POSITION = "WR"
 
 
-def player_goose_probability(
+def position_averages(starters: Iterable[Mapping]) -> dict[str, float]:
+    """
+    The week's bar, per position: the mean projection of every STARTER at that
+    position across the whole league.
+
+    `starters` is every started slot in the league this week, each a mapping
+    with "position" and "projection". Empty slots and players with no
+    projection are excluded -- they are the thing being measured against the
+    bar, and letting a pile of zeros into the average would drag the bar down
+    and make a bad week look like a normal one.
+
+    A position with fewer than MIN_POSITION_SAMPLE real starters falls back to
+    the measured league average rather than trusting a mean of two.
+    """
+    buckets: dict[str, list[float]] = {}
+    for row in starters:
+        pos = (row.get("position") or "").upper()
+        proj = row.get("projection")
+        if not pos or proj is None:
+            continue
+        try:
+            proj = float(proj)
+        except (TypeError, ValueError):
+            continue
+        if proj <= ZERO_PROJECTION_THRESHOLD:
+            continue
+        buckets.setdefault(pos, []).append(proj)
+
+    out: dict[str, float] = {}
+    for pos, values in buckets.items():
+        if len(values) >= MIN_POSITION_SAMPLE:
+            out[pos] = sum(values) / len(values)
+        else:
+            out[pos] = FALLBACK_POSITION_AVG.get(pos, FALLBACK_POSITION_AVG[DEFAULT_POSITION])
+    return out
+
+
+def tier_for_ratio(ratio: float) -> str:
+    for edge, name in RATIO_CUTS:
+        if ratio < edge:
+            return name
+    return SAFE
+
+
+def player_risk(
     *,
     player_id=None,
     position: str | None = None,
     projection: float | None = None,
+    position_avg: float | None = None,
     injury_status: str | None = None,
     on_bye: bool = False,
-    projection_is_forecast: bool = True,
-) -> float:
+) -> dict:
     """
-    P(this starter scores <= 0), as a float in [0, 1].
+    One starter's risk, as a tier plus the reason for it.
 
-    Checked in order of how decisive each signal is. Availability dominates:
-    a player who is not playing is a near-certain goose regardless of how good
-    he is, and a healthy WR1 is a near-certain non-goose regardless of matchup.
+    Returns {"tier", "ratio", "reason", "weight", "rate", "blurb"}. `reason` is
+    None for an ordinary healthy player and a short all-caps label otherwise --
+    that label is the whole point of the rework, because "OUT" tells an owner
+    more in two letters than "90%" did in three.
 
-    `projection_is_forecast` must be False when `projection` is a backward
-    average rather than a real forward projection -- backtests do this. The
-    zero-projection backstop below only makes sense for a forecast: Sleeper
-    projecting 0.0 means it believes the player will not play, whereas an
-    average of 0.0 just means he has been quiet.
+    Order matters, and it is order of certainty. Availability first: nothing a
+    projection says can rescue a player who is not on the field. Then the
+    projection ratio. Questionable is last because it is the only genuinely
+    uncertain signal here, and it nudges rather than decides.
     """
     if is_empty_slot(player_id):
-        return P_EMPTY_SLOT
+        return _risk(COOKED, None, "EMPTY SLOT")
     if on_bye:
-        return P_BYE
+        return _risk(COOKED, None, "ON BYE")
 
     status = (injury_status or "").strip()
     if status in OUT_HARD:
-        return P_OUT
+        return _risk(COOKED, None, status.upper())
     if status == "Doubtful":
-        return P_DOUBTFUL
+        return _risk(COOKED, None, "DOUBTFUL")
 
-    if (
-        projection_is_forecast
-        and projection is not None
-        and float(projection) <= ZERO_PROJECTION_THRESHOLD
-    ):
-        return P_ZERO_PROJECTION
+    if projection is None:
+        # No projection at all -- a week-1 rookie, or someone the feed misses.
+        # NOT treated as bad: a starter with no history is usually someone
+        # drafted on purpose, and those slots goose at well under the rate the
+        # bottom tier would charge them. Park them mid-table and say why.
+        return _risk(SHAKY, None, "NO PROJECTION")
 
-    p = base_rate(position, projection) * LEAGUE_CALIBRATION
+    try:
+        proj = float(projection)
+    except (TypeError, ValueError):
+        return _risk(SHAKY, None, "NO PROJECTION")
+
+    if proj <= ZERO_PROJECTION_THRESHOLD:
+        return _risk(COOKED, 0.0, "PROJECTED ZERO")
+
+    bar = position_avg
+    if not bar or float(bar) <= 0:
+        bar = FALLBACK_POSITION_AVG.get(
+            (position or "").upper(), FALLBACK_POSITION_AVG[DEFAULT_POSITION])
+    ratio = proj / float(bar)
+    tier = tier_for_ratio(ratio)
+
     if status == "Questionable":
-        p = max(p * QUESTIONABLE_MULTIPLIER, QUESTIONABLE_FLOOR)
-    return min(p, 0.99)
+        tier = worsen(tier, 1)
+        return _risk(tier, ratio, "QUESTIONABLE")
+    return _risk(tier, ratio, None)
 
 
-def team_chug_odds(probabilities: Iterable[float]) -> float:
+def worsen(tier: str, steps: int = 1) -> str:
+    """Move a tier `steps` toward COOKED, stopping there."""
+    i = min(TIER_INDEX.get(tier, 1) + steps, len(TIERS) - 1)
+    return TIERS[i]
+
+
+def _risk(tier: str, ratio: float | None, reason: str | None) -> dict:
+    return {
+        "tier": tier,
+        "ratio": None if ratio is None else round(float(ratio), 3),
+        "reason": reason,
+        "weight": TIER_WEIGHT[tier],
+        "rate": TIER_RATE[tier],
+        "blurb": reason.title() if reason else TIER_BLURB[tier],
+    }
+
+
+# --------------------------------------------------------------------------
+# Team risk rating
+# --------------------------------------------------------------------------
+
+# Mean tier weight per STARTING SLOT, so the rating does not move just because
+# a league starts eleven players instead of nine. Bands fitted on the same 35k
+# slots, and named so the MEDIAN lineup does not read as an emergency -- the
+# average lineup scores about 1.38, which is EXPOSED, which really is a one in
+# three week. Roughly 17% / 24% / 31% / 28% of team-weeks land in each band.
+#
+#   CLEAN       < 0.90     P(at least one goose)  11%
+#   STEADY     0.90-1.20                          16%
+#   EXPOSED    1.20-1.60                          30%
+#   GOOSE BAIT  >= 1.60                           43%
+TEAM_CUTS = ((0.90, "CLEAN"), (1.20, "STEADY"), (1.60, "EXPOSED"))
+TEAM_TIERS = ("CLEAN", "STEADY", "EXPOSED", "GOOSE BAIT")
+TEAM_INDEX = {name: i for i, name in enumerate(TEAM_TIERS)}
+TEAM_RATE = {"CLEAN": 0.11, "STEADY": 0.16, "EXPOSED": 0.30, "GOOSE BAIT": 0.43}
+
+
+def team_risk(tiers: Sequence[str]) -> dict:
     """
-    P(at least one goose) = 1 - product(1 - p).
+    A lineup's rating from its tier composition.
 
-    Independence is assumed and is not strictly true -- two starters can share
-    a game that gets weather-cancelled, and a single owner's neglect correlates
-    across his whole lineup. Both push the real number slightly higher than
-    this. Good enough for a beer game; do not quote it as a real book price.
+    Returns {"tier", "score", "at_risk", "worst", "rate", "counts"}, where
+    `at_risk` counts slots at GOOSE BAIT or worse -- the number an owner
+    actually wants, because it is how many players they could still do
+    something about.
     """
-    survive = 1.0
-    for p in probabilities:
-        p = min(max(float(p), 0.0), 1.0)
-        survive *= (1.0 - p)
-    return min(max(1.0 - survive, 0.005), 0.995)
+    tiers = [t for t in tiers if t in TIER_INDEX]
+    if not tiers:
+        return {"tier": None, "score": None, "at_risk": 0, "worst": None,
+                "rate": None, "counts": {}}
+
+    score = sum(TIER_WEIGHT[t] for t in tiers) / len(tiers)
+    band = next((name for edge, name in TEAM_CUTS if score < edge), "GOOSE BAIT")
+    worst = max(tiers, key=lambda t: TIER_INDEX[t])
+    return {
+        "tier": band,
+        "score": round(score, 2),
+        "at_risk": sum(1 for t in tiers if TIER_INDEX[t] >= TIER_INDEX[BAIT]),
+        "worst": worst,
+        "rate": TEAM_RATE[band],
+        "counts": {t: tiers.count(t) for t in TIERS if tiers.count(t)},
+    }
 
 
-def american_price(probability: float, round_to: int = 5) -> str:
+def expected_gooses(tiers: Iterable[str]) -> float:
     """
-    Probability -> a sportsbook price, because '+285' reads better on the board
-    than '26%'. No vig is applied: this is a display of the model's own number,
-    not a line anyone is betting into.
+    Expected COUNT of gooses across the slots handed in -- the launch sanity
+    check. Summed over all twelve lineups it should land near 3.7 for a normal
+    week. If it says 11, something upstream is broken; do not ship it.
     """
-    p = min(max(float(probability), 0.005), 0.995)
-    if p < 0.5:
-        raw = (1.0 - p) / p * 100.0
-        value = int(round(raw / round_to) * round_to)
-        return f"+{value}"
-    raw = p / (1.0 - p) * 100.0
-    value = int(round(raw / round_to) * round_to)
-    return f"-{max(value, 100)}"
-
-
-def implied_probability(price: str) -> float:
-    """Inverse of american_price, for tests and for tooltips."""
-    price = str(price).strip()
-    value = float(price.lstrip("+"))
-    if value < 0:
-        value = abs(value)
-        return value / (value + 100.0)
-    return 100.0 / (value + 100.0)
-
-
-def expected_gooses(probabilities: Iterable[float]) -> float:
-    """
-    Sum of per-player probabilities -- the expected COUNT, not the chance of at
-    least one. This is the launch sanity check: summed across all 12 lineups it
-    should land near 3.6 for a normal week.
-    """
-    return round(sum(min(max(float(p), 0.0), 1.0) for p in probabilities), 2)
+    return round(sum(TIER_RATE.get(t, 0.0) for t in tiers), 2)

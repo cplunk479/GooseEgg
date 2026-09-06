@@ -10,3 +10,5 @@ echo
 python tests/test_watch.py
 echo
 python tests/test_templates.py
+echo
+python tests/test_demo.py

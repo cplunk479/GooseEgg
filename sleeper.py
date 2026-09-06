@@ -51,11 +51,91 @@ def _get_json(url: str, timeout: int = HTTP_TIMEOUT) -> Any:
 
 
 # --------------------------------------------------------------------------
+# Response cache
+# --------------------------------------------------------------------------
+#
+# Added in v0.5 because the Board and My Geese now render a LIVE projection
+# preview before a week locks, and without this every page load would pull the
+# league, the matchups and the full week's projections again. TTLs are set by
+# how fast each thing actually moves, not by taste:
+#
+#   league shape   a whole season          rosters change, scoring does not
+#   projections    15 minutes              Sleeper revises these through the week
+#   matchups        2 minutes              starters change up to kickoff
+#
+# In-process only, so each Render web worker keeps its own copy. That is fine:
+# the worst case is one owner seeing a two-minute-old lineup, and the numbers
+# that MATTER are the ones lock_week freezes into the database, which never
+# come from here.
+
+_TTL_LEAGUE = 6 * 3600
+_TTL_PROJECTIONS = 900
+_TTL_MATCHUPS = 120
+
+_cache: dict = {}
+
+
+def _cached(key, ttl: int, producer):
+    hit = _cache.get(key)
+    if hit and (time.time() - hit[1]) < ttl:
+        return hit[0]
+    value = producer()
+    _cache[key] = (value, time.time())
+    return value
+
+
+def clear_cache() -> None:
+    """Drop every cached response. Called when demo mode is switched."""
+    _cache.clear()
+    _scores_cache.clear()
+
+
+# --------------------------------------------------------------------------
+# Demo mode seam
+# --------------------------------------------------------------------------
+#
+# When a demo snapshot is installed, the three feeds that carry a week's
+# RESULTS come from it instead of from Sleeper. Everything else -- the league's
+# roster slots, its scoring settings, the player directory -- still comes from
+# the real API, because those are the parts that make the demo look like this
+# league rather than a mock-up.
+#
+# One seam, three functions, and it lives here rather than in the callers on
+# purpose: every screen, the week engine and the tier model then run on demo
+# data completely unmodified, which is the only way the demo proves anything
+# about the real thing. See demo.py.
+#
+# The week guard matters. A snapshot is built for one week; asking for any
+# other week falls through to the real API rather than serving week 1's scores
+# under week 4's heading.
+
+_demo: dict | None = None
+
+
+def set_demo(payload: dict | None) -> None:
+    global _demo
+    _demo = payload or None
+
+
+def demo_payload() -> dict | None:
+    return _demo
+
+
+def _demo_for(week: int | None = None) -> dict | None:
+    if not _demo:
+        return None
+    if week is not None and int(_demo.get("week", -1)) != int(week):
+        return None
+    return _demo
+
+
+# --------------------------------------------------------------------------
 # League shape
 # --------------------------------------------------------------------------
 
 def league(league_id: str) -> dict:
-    return _get_json(f"{BASE_V1}/league/{league_id}")
+    return _cached(("league", league_id), _TTL_LEAGUE,
+                   lambda: _get_json(f"{BASE_V1}/league/{league_id}"))
 
 
 def scoring_settings(league_id: str) -> dict:
@@ -86,7 +166,11 @@ def matchups(league_id: str, week: int) -> list[dict]:
     returns every roster in those weeks, so no bracket handling is needed --
     but confirm at build time whether this league plays week 18.
     """
-    return _get_json(f"{BASE_V1}/league/{league_id}/matchups/{week}")
+    demo = _demo_for(week)
+    if demo is not None:
+        return demo.get("matchups") or []
+    return _cached(("matchups", league_id, week), _TTL_MATCHUPS,
+                   lambda: _get_json(f"{BASE_V1}/league/{league_id}/matchups/{week}"))
 
 
 # --------------------------------------------------------------------------
@@ -95,8 +179,14 @@ def matchups(league_id: str, week: int) -> list[dict]:
 
 def projections(season: int, week: int) -> dict:
     """player_id -> raw stat projection dict."""
-    raw = _get_json(PROJECTIONS_URL.format(season=season, week=week))
-    return normalize_projections(raw)
+    demo = _demo_for(week)
+    if demo is not None:
+        return demo.get("projections") or {}
+    return _cached(
+        ("projections", season, week), _TTL_PROJECTIONS,
+        lambda: normalize_projections(
+            _get_json(PROJECTIONS_URL.format(season=season, week=week))),
+    )
 
 
 def normalize_projections(raw: Any) -> dict:
@@ -140,6 +230,9 @@ _scores_cache: dict[tuple, tuple] = {}
 
 
 def week_games(season: int, week: int) -> list[dict]:
+    demo = _demo_for(week)
+    if demo is not None:
+        return demo.get("games") or []
     key = (season, week)
     cached = _scores_cache.get(key)
     if cached and (time.time() - cached[1]) < _SCORES_TTL:
@@ -311,6 +404,41 @@ def _clock(meta: dict) -> str:
     return f"{label} {remaining}".strip()
 
 
+QUARTER_SECONDS = 15 * 60
+
+
+def _seconds_left(meta: dict, state: str):
+    """
+    Game seconds remaining, for sorting Goose Watch by urgency.
+
+    0 for a finished game, None before kickoff -- and None is NOT zero, which
+    is the entire reason this returns None rather than a big number: a caller
+    that sorts ascending must be able to push "hasn't started" to the bottom
+    rather than the top. Overtime counts as 0 remaining; there is no way to
+    know how much of it is left and a game in overtime is as urgent as it gets.
+    """
+    if state == FINAL:
+        return 0
+    if state != LIVE:
+        return None
+    num = meta.get("quarter_num")
+    try:
+        num = int(num)
+    except (TypeError, ValueError):
+        return None
+    if num > 4:
+        return 0
+    remaining = str(meta.get("time_remaining") or "").strip()
+    seconds = 0
+    if ":" in remaining:
+        mm, _, ss = remaining.partition(":")
+        try:
+            seconds = int(mm) * 60 + int(ss)
+        except ValueError:
+            seconds = 0
+    return max(0, (4 - num) * QUARTER_SECONDS + seconds)
+
+
 def game_state_by_team(season: int, week: int) -> dict:
     """
     TEAM -> {state, clock, opponent, score, opponent_score, start_time}.
@@ -346,10 +474,11 @@ def game_state_by_team(season: int, week: int) -> dict:
         home_score = meta.get("home_score")
         away_score = meta.get("away_score")
 
+        left = _seconds_left(meta, state)
         out[home] = {"state": state, "clock": clock, "quarter": quarter, "opponent": away,
                      "home": True, "score": home_score, "opponent_score": away_score,
-                     "start_time": start}
+                     "start_time": start, "seconds_left": left}
         out[away] = {"state": state, "clock": clock, "quarter": quarter, "opponent": home,
                      "home": False, "score": away_score, "opponent_score": home_score,
-                     "start_time": start}
+                     "start_time": start, "seconds_left": left}
     return out

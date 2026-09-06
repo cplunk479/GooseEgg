@@ -3,14 +3,18 @@
 {% block body %}
 <style>
   .slot {
-    width: 38px; flex-shrink: 0; text-align: center;
+    width: 40px; flex-shrink: 0; text-align: center;
     font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 10px;
-    letter-spacing: 0.08em; color: var(--text2); background: var(--surf2);
+    letter-spacing: 0.06em; color: var(--text2); background: var(--surf2);
     border-radius: 4px; padding: 3px 0;
   }
-  .pl-row { display: flex; align-items: center; gap: 9px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+  .pl-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
   .pl-row.hot { background: linear-gradient(90deg, rgba(196,106,30,0.12) 0%, var(--bg) 55%); }
   .pl-row.gsd { background: linear-gradient(90deg, rgba(122,42,22,0.16) 0%, var(--bg) 62%); }
+  .pl-photo { width: 32px; height: 32px; border-radius: 7px; object-fit: cover;
+              background: var(--surf2); flex-shrink: 0; }
+  .pl-blank { width: 32px; height: 32px; border-radius: 7px; flex-shrink: 0;
+              background: var(--surf2); display: flex; align-items: center; justify-content: center; }
   .pl-nm { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px;
            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pl-meta { font-size: 10px; color: var(--text2); margin-top: 1px; }
@@ -20,12 +24,24 @@
 </style>
 
 {% if my_curse %}
-<div style="display: flex; align-items: center; gap: 9px; padding: 10px 14px; background: linear-gradient(160deg, #24140A 0%, #16100A 80%); border-bottom: 1px solid rgba(196,106,30,0.5);">
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--ember)" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(160deg, #24140A 0%, #16100A 80%); border-bottom: 1px solid rgba(196,106,30,0.5);">
+  <img class="tok tok-34 tok--curse" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="Goothulu">
   <div>
     <div class="bar" style="font-weight: 800; font-size: 11px; letter-spacing: 0.16em; color: var(--ember);">GOOTHULU&rsquo;S CURSE IS ON YOU</div>
     <div style="font-size: 10px; color: var(--text2); margin-top: 1px;">
-      {% if my_curse.threshold_proj %}Beat {{ my_curse.threshold_proj | pts }} or chug{% else %}Threshold set at kickoff{% endif %}
+      {% if my_curse.threshold_proj %}Beat {{ my_curse.threshold_proj | pts }} or chug{% else %}Threshold is set at Sunday kickoff{% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if blessing %}
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(160deg, #241E05 0%, #16130A 80%); border-bottom: 1px solid rgba(232,185,35,0.45);">
+  <img class="tok tok-34 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="Goosiah">
+  <div>
+    <div class="bar" style="font-weight: 800; font-size: 11px; letter-spacing: 0.16em; color: var(--gold);">GOOSIAH&rsquo;S BLESSING IS SHIELDING YOU</div>
+    <div style="font-size: 10px; color: var(--text2); margin-top: 1px;">
+      Blocks one curse through week {{ blessing.expires_after }}. It does not bank.
     </div>
   </div>
 </div>
@@ -34,57 +50,99 @@
 <div style="display: flex; gap: 10px; padding: 14px;">
   <div class="card" style="flex: 1;">
     <div class="overline">Projection</div>
-    <div class="bar" style="font-weight: 800; font-size: 28px; line-height: 1.05; margin-top: 2px;">{{ team_week.proj_total | pts if team_week else '--' }}</div>
+    <div class="bar" style="font-weight: 800; font-size: 28px; line-height: 1.05; margin-top: 2px;">{{ proj_total | pts }}</div>
     <div style="font-size: 10px; color: var(--text2); margin-top: 2px;">
-      {% if team_week and team_week.actual_total is not none %}scored {{ team_week.actual_total | pts }}{% else %}frozen at kickoff{% endif %}
+      {% if team_week and team_week.actual_total is not none %}scored {{ team_week.actual_total | pts }}
+      {%- elif preview %}moves until kickoff
+      {%- else %}frozen at kickoff{% endif %}
     </div>
   </div>
-  <div class="card" style="width: 132px; {% if my_curse %}border-color: rgba(196,106,30,0.5);{% endif %}">
-    <div class="overline">Chug odds</div>
-    <div class="bar" style="font-weight: 800; font-size: 28px; line-height: 1.05; margin-top: 2px; color: {% if my_curse %}var(--ember){% else %}var(--gold){% endif %};">{{ team_week.chug_odds | odds if team_week else '--' }}</div>
-    <div style="font-size: 10px; color: var(--text2); margin-top: 2px;">{{ team_week.chug_odds | pct if team_week else '--' }} &middot; any goose</div>
+  <div class="card" style="width: 148px; {% if my_curse %}border-color: rgba(196,106,30,0.5);{% endif %}">
+    <div class="overline">Goose risk</div>
+    {% if team_risk and team_risk.tier %}
+      <div style="margin-top: 6px;"><span class="tier trisk-{{ team_risk.tier | tierclass }}" style="font-size: 12px; padding: 4px 8px;">{{ team_risk.tier }}</span></div>
+      <div style="font-size: 10px; color: var(--text2); margin-top: 6px;">
+        a goose {{ team_risk.rate | oneIn }}
+        {%- if team_risk.at_risk %} &middot; {{ team_risk.at_risk }} at risk{% endif %}
+      </div>
+    {% else %}
+      <div class="bar" style="font-weight: 800; font-size: 28px; line-height: 1.05; margin-top: 2px; color: var(--text3);">--</div>
+      <div style="font-size: 10px; color: var(--text2); margin-top: 2px;">no lineup yet</div>
+    {% endif %}
   </div>
 </div>
 
-<div style="display: flex; align-items: center; gap: 10px; padding: 0 14px 10px;">
-  <div class="pill {% if tokens %}pill-cursed{% else %}pill-sealed{% endif %}">{{ tokens }} curse token{{ '' if tokens == 1 else 's' }}</div>
-  {% if blessing %}<div class="pill pill-blessed">blessed through week {{ blessing.expires_after }}</div>{% endif %}
+<div style="display: flex; align-items: center; gap: 8px; padding: 0 14px 10px;">
+  <div class="tok-wrap" style="display: flex; align-items: center; gap: 6px;">
+    <img class="tok tok-22 {% if tokens %}tok--curse{% else %}tok--off{% endif %}" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="">
+    <span class="pill {% if tokens %}pill-cursed{% else %}pill-sealed{% endif %}">{{ tokens }} curse token{{ '' if tokens == 1 else 's' }}</span>
+  </div>
+  {% if blessing %}
+    <img class="tok tok-22 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="">
+    <span class="pill pill-blessed">shielded through week {{ blessing.expires_after }}</span>
+  {% endif %}
 </div>
 
-<div style="display: flex; align-items: flex-end; gap: 8px; padding: 6px 14px 8px; border-top: 6px solid var(--surf);">
+{% if preview %}
+<div class="preview-note">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.8" style="flex-shrink:0;"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>
+  <div><strong style="color: var(--text);">Live preview.</strong>
+    Your lineup and every tier below still move &mdash; swap a player and this changes.
+    Everything freezes at the first Sunday kickoff.</div>
+</div>
+{% endif %}
+
+<div style="display: flex; align-items: flex-end; gap: 8px; padding: 10px 14px 8px; border-top: 6px solid var(--surf);">
   <div class="section-head" style="flex: 1;">Week {{ week }} lineup</div>
   <div style="width: 44px; text-align: right;" class="overline">Proj</div>
-  <div style="width: 52px; text-align: right;" class="overline">Goose</div>
+  <div style="width: 78px; text-align: right;" class="overline">Risk</div>
 </div>
 
 {% if lineup %}
   {% for p in lineup %}
-    {% set gp = (p.goose_prob or 0) | float %}
-    {% set col = 'var(--ember)' if gp >= 0.10 else ('var(--gold)' if gp >= 0.03 else 'var(--jade)') %}
-    <div class="pl-row {% if p.is_goose %}gsd{% elif gp >= 0.10 %}hot{% endif %}">
+    {# Both the live preview and the frozen snapshot are normalised to the same
+       keys in app.py, so this template reads one shape. `actual_pts` and
+       `is_goose` only exist once a week has settled, hence .get(). #}
+    {% set tier = p.tier or 'unknown' %}
+    {% set bad = tier in ('GOOSE BAIT', 'COOKED') %}
+    {% set scored = p.get('actual_pts') %}
+    <div class="pl-row {% if p.get('is_goose') %}gsd{% elif bad %}hot{% endif %}">
       <div class="slot">{{ p.slot }}</div>
-      <div style="flex: 1; min-width: 0;">
-        <div style="display: flex; align-items: center; gap: 5px;">
-          <div class="pl-nm">{{ p.full_name or ('Empty slot' if not p.player_id else 'Player ' ~ p.player_id) }}</div>
-          {% if p.injury_status %}<div class="pill pill-cursed">{{ p.injury_status[:1] }}</div>{% endif %}
+      {% if p.photo %}
+        <img class="pl-photo" src="{{ p.photo }}" alt=""
+             onerror="this.onerror=null; this.src='{{ url_for('static', filename='img/goothulu.jpg') }}'; this.style.opacity='0.25';">
+      {% else %}
+        <div class="pl-blank">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
         </div>
+      {% endif %}
+      <div style="flex: 1; min-width: 0;">
+        <div class="pl-nm">{{ p.name or 'Empty slot' }}</div>
         <div class="pl-meta">
-          {%- if p.position %}{{ p.position }} &middot; {{ p.team or 'FA' }}{% else %}nothing started here{% endif -%}
-          {%- if p.actual_pts is not none %} &middot; scored {{ p.actual_pts | pts }}{% endif -%}
+          {%- if p.position %}{{ p.position }} &middot; {{ p.nfl_team or 'FA' }}{% else %}nothing started here{% endif -%}
+          {%- if scored is not none %} &middot; scored {{ scored | pts }}{% endif -%}
         </div>
       </div>
-      <div class="num" style="width: 44px; text-align: right;">{{ p.proj_pts | pts }}</div>
-      <div style="width: 52px;">
-        <div class="num" style="text-align: right; color: {{ col }};">{{ p.goose_prob | pct }}</div>
-        <div style="height: 3px; border-radius: 2px; background: var(--surf2); margin-top: 4px; overflow: hidden;">
-          <div style="height: 3px; width: {{ (gp * 700) | round | int if gp < 0.143 else 100 }}%; background: {{ col }};"></div>
-        </div>
+      <div class="num" style="width: 44px; text-align: right;">{{ p.projection | pts }}</div>
+      <div style="width: 78px; text-align: right;">
+        <span class="tier tier-{{ tier | tierclass }}">{{ p.reason or tier }}</span>
+        {% if p.ratio %}
+          <div style="font-size: 9px; color: var(--text3); margin-top: 3px;">
+            {{ (p.ratio * 100) | round | int }}% of {{ p.position or 'pos' }} avg
+          </div>
+        {% endif %}
       </div>
     </div>
   {% endfor %}
+  <div class="caption" style="padding: 11px 14px; line-height: 1.55; border-bottom: 1px solid var(--border);">
+    A tier compares a player&rsquo;s projection with the average starter at his position this week.
+    <span class="tier tier-goose-bait">GOOSE BAIT</span> and
+    <span class="tier tier-cooked">COOKED</span> are the ones that actually goose &mdash;
+    roughly 6% and 11% of the time. Everything above them is under 4%.
+  </div>
 {% else %}
   <div class="caption" style="padding: 16px 14px;">
-    Nothing snapshotted for week {{ week }} yet. Lineups and goose odds are frozen at the first Sunday kickoff.
+    No lineup for week {{ week }} yet. Set one in Sleeper and it shows up here.
   </div>
 {% endif %}
 
@@ -112,6 +170,8 @@
 {% if curses %}
   {% for c in curses %}
     <div class="listrow">
+      <img class="tok tok-22 {% if c.status == 'landed' %}tok--landed{% elif c.status == 'cast' %}tok--curse{% else %}tok--spent{% endif %}"
+           src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="">
       <div style="flex: 1; min-width: 0;">
         <div class="pl-nm">
           {% if c.caster_roster_id == me.roster_id %}You cursed {{ label(owners.get(c.target_roster_id)) }}
@@ -132,10 +192,16 @@
 {% if gooses %}
   {% for g in gooses %}
     <div class="listrow">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="var(--blood)" style="flex-shrink: 0;"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+      {% if g.player_id %}
+        <img class="pl-photo" style="width: 28px; height: 28px;" src="https://sleepercdn.com/content/nfl/players/thumb/{{ g.player_id }}.jpg" alt="" onerror="this.style.visibility='hidden'">
+      {% else %}
+        <div class="pl-blank" style="width: 28px; height: 28px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--blood)"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+        </div>
+      {% endif %}
       <div style="flex: 1; min-width: 0;">
         <div class="pl-nm">{{ g.full_name or ('Empty ' ~ g.slot ~ ' slot' if g.empty_slot else 'Player ' ~ g.player_id) }}</div>
-        <div class="pl-meta">Week {{ g.week }} &middot; {{ g.slot }}{% if g.position %} &middot; {{ g.position }}-{{ g.team }}{% endif %}</div>
+        <div class="pl-meta">Week {{ g.week }} &middot; {{ g.slot }}{% if g.team %} &middot; {{ g.team }}{% endif %}</div>
       </div>
       <div class="num" style="color: var(--flame);">{{ g.points | pts }}</div>
     </div>

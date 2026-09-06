@@ -3,7 +3,7 @@
 {% block body %}
 <style>
   .row-wrap { border-bottom: 1px solid var(--border); }
-  .row-wrap.cursed { background: linear-gradient(160deg, #1D1109 0%, var(--bg) 72%); }
+  .row-wrap.cursed  { background: linear-gradient(160deg, #1D1109 0%, var(--bg) 72%); }
   .row-wrap.blessed { background: linear-gradient(160deg, #191505 0%, var(--bg) 72%); }
   .ribbon {
     display: flex; align-items: center; gap: 6px; padding: 6px 14px 1px;
@@ -16,44 +16,60 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .row .sub { font-size: 10px; color: var(--text2); margin-top: 1px; }
-  .cell {
-    width: 74px; flex-shrink: 0; background: var(--surf2); border: 1px solid var(--border);
-    border-radius: 7px; padding: 7px 2px; text-align: center;
+  /* Four fixed columns after the team name: projection, marks, risk, curse.
+     Widths are fixed so the whole board reads as a table on a 390px phone
+     rather than twelve differently-shaped rows. */
+  .c-proj  { width: 46px; flex-shrink: 0; text-align: right; }
+  .c-marks { width: 34px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; }
+  .c-risk  { width: 74px; flex-shrink: 0; text-align: right; }
+  .c-curse { width: 34px; flex-shrink: 0; display: flex; justify-content: flex-end; }
+  .num { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; }
+  .colhead {
+    display: flex; align-items: center; gap: 8px; padding: 4px 14px 6px;
+    border-bottom: 1px solid var(--border); color: var(--text3);
+    font-size: 8.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
   }
-  .cell.hot { border-color: rgba(196,106,30,0.55); }
-  .cell .big { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; line-height: 1.05; }
-  .cell .sml { font-size: 9.5px; color: var(--text2); letter-spacing: 0.04em; }
-  .risk { width: 52px; flex-shrink: 0; text-align: center; }
-  .risk .big { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; }
-  .track { height: 3px; border-radius: 2px; background: var(--surf2); margin-top: 5px; overflow: hidden; }
+  .curse-btn {
+    width: 30px; height: 30px; border-radius: 50%; padding: 0;
+    background: var(--surf2); border: 1px dashed var(--border);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .curse-btn:hover { border-color: var(--ember); }
+  .curse-btn:disabled { opacity: 0.3; cursor: default; }
+  .banner {
+    margin: 12px 14px; padding: 12px 14px; border-radius: 12px;
+    background: linear-gradient(150deg, #24140A 0%, #16100A 80%);
+    border: 1px solid rgba(196,106,30,0.55);
+    display: flex; align-items: center; gap: 11px;
+  }
 </style>
 
 <div class="status-bar">
   <div>
-    <div class="label">MY CHUG ODDS</div>
-    <div class="val">{{ my_row.chug_odds | odds if my_row else '--' }}</div>
-    <div style="font-size: 10px; color: var(--text2); margin-top: 2px;">
-      {% if my_row and my_row.chug_odds %}{{ my_row.chug_odds | pct }} ·{% endif %}
-      proj {{ my_row.proj_total | pts if my_row else '--' }}
+    <div class="label">MY LINEUP</div>
+    <div class="val" style="color: {% if my_row and my_row.risk_tier %}inherit{% else %}var(--text3){% endif %};">
+      {{ my_row.proj_total | pts if my_row else '--' }}
+    </div>
+    <div style="font-size: 10px; color: var(--text2); margin-top: 3px;">
+      {% if my_row and my_row.risk_tier %}
+        <span class="tier trisk-{{ my_row.risk_tier | tierclass }}">{{ my_row.risk_tier }}</span>
+        <span style="margin-left: 5px;">a goose {{ my_row.risk_rate | oneIn }}</span>
+      {% else %}projected points{% endif %}
     </div>
   </div>
   <div style="display: flex; align-items: center; gap: 16px;">
     <div style="text-align: center;">
       <div class="token-wrap">
-        <div class="token {% if my_tokens %}token--curse{% else %}token--off{% endif %}"
-             style="display:flex;align-items:center;justify-content:center;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{% if my_tokens %}var(--ember){% else %}var(--text3){% endif %}" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/><path d="M8.6 9.9l2.4 1.8-1.5 2.2 3.1 1.9"/></svg>
-        </div>
+        <img class="tok tok-42 {% if my_tokens %}tok--curse{% else %}tok--off{% endif %}"
+             src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="Goothulu curse token">
         {% if my_tokens %}<div class="token-count">{{ my_tokens }}</div>{% endif %}
       </div>
       <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_tokens %}var(--ember){% else %}var(--text3){% endif %};">CURSES</div>
     </div>
     <div style="text-align: center;">
-      <div class="token {% if my_blessed %}token--bless{% else %}token--off{% endif %}"
-           style="display:flex;align-items:center;justify-content:center;">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{% if my_blessed %}var(--gold){% else %}var(--text3){% endif %}" stroke-width="1.7" stroke-linejoin="round"><path d="M12 2.8l7 3v6.2c0 4.4-3 7.7-7 9.2-4-1.5-7-4.8-7-9.2V5.8l7-3Z"/></svg>
-      </div>
-      <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_blessed %}var(--gold){% else %}var(--text3){% endif %};">{% if my_blessed %}BLESSED{% else %}NO BLESSING{% endif %}</div>
+      <img class="tok tok-42 {% if my_blessed %}tok--shield{% else %}tok--off{% endif %}"
+           src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="Goosiah's blessing">
+      <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_blessed %}var(--gold){% else %}var(--text3){% endif %};">{% if my_blessed %}SHIELDED{% else %}NO BLESSING{% endif %}</div>
     </div>
   </div>
 </div>
@@ -75,27 +91,61 @@
   </form>
 </div>
 
+{% if preview %}
+<div class="preview-note">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.8" style="flex-shrink:0;"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>
+  <div><strong style="color: var(--text);">Live preview.</strong>
+    These projections move every time a lineup or an injury report changes. The numbers that
+    curses are graded against are frozen at the first Sunday kickoff.</div>
+</div>
+{% endif %}
+
+{% if most_cursed %}
+<div class="banner">
+  <img class="tok tok-34 tok--landed" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="Goothulu">
+  <div style="flex: 1; min-width: 0;">
+    <div class="bar" style="font-weight: 800; font-size: 10px; letter-spacing: 0.16em; color: var(--ember);">MOST CURSED BY GOOTHULU</div>
+    <div class="bar" style="font-weight: 800; font-size: 17px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ most_cursed.team }}</div>
+    <div style="font-size: 10px; color: var(--text2); margin-top: 1px;">
+      {{ most_cursed.count }} curse{{ '' if most_cursed.count == 1 else 's' }} taken this season
+      {%- if most_cursed.landed %} &middot; {{ most_cursed.landed }} landed{% endif %}
+    </div>
+  </div>
+  {% if most_cursed.avatar %}
+    <img class="logo" style="width: 30px; height: 30px;" src="https://sleepercdn.com/avatars/thumbs/{{ most_cursed.avatar }}" alt="" onerror="this.style.visibility='hidden'">
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="colhead">
+  <div style="flex: 1;">Team</div>
+  <div class="c-proj">Proj</div>
+  <div class="c-marks" style="justify-content: center;">Marks</div>
+  <div class="c-risk">Goose risk</div>
+  <div class="c-curse">Curse</div>
+</div>
+
 {% for r in rows %}
-  {% set cursed = r.curses | selectattr('status', 'equalto', 'cast') | list | length > 0 %}
-  <div class="row-wrap {% if cursed %}cursed{% elif r.blessed %}blessed{% endif %}">
-    {% if cursed %}
-      {% for c in r.curses if c.status == 'cast' %}
-        <div class="ribbon" style="color: var(--ember);">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ember)" stroke-width="1.8"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
-          GOOTHULU&rsquo;S CURSE
-          {%- if c.sealed %} &middot; CASTER SEALED
-          {%- else %} &middot; {{ c.caster | upper }}{% endif %}
-          {% if c.mine and wk.status == 'open' %}
-            <form method="POST" action="{{ url_for('cancel_curse', curse_id=c.id) }}" style="margin-left: auto;">
-              <button class="btn-sm" type="submit">Withdraw</button>
-            </form>
-          {% endif %}
-        </div>
-      {% endfor %}
-    {% elif r.blessed %}
+  {% set cast = r.curses | selectattr('status', 'equalto', 'cast') | list %}
+  <div class="row-wrap {% if cast %}cursed{% elif r.blessed %}blessed{% endif %}">
+    {% for c in cast %}
+      <div class="ribbon" style="color: var(--ember);">
+        <img class="tok tok-17 {% if c.sealed %}tok--sealed{% else %}tok--curse{% endif %}" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="">
+        GOOTHULU&rsquo;S CURSE
+        {%- if c.sealed %} &middot; CASTER SEALED
+        {%- else %} &middot; {{ c.caster | upper }}{% endif %}
+        {%- if c.threshold %} &middot; NEEDS {{ c.threshold | pts }}{% endif %}
+        {% if c.mine and wk.status == 'open' %}
+          <form method="POST" action="{{ url_for('cancel_curse', curse_id=c.id) }}" style="margin-left: auto;">
+            <button class="btn-sm" type="submit">Withdraw</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endfor %}
+    {% if not cast and r.blessed %}
       <div class="ribbon" style="color: var(--gold);">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2.8l7 3v6.2c0 4.4-3 7.7-7 9.2-4-1.5-7-4.8-7-9.2V5.8l7-3Z"/></svg>
-        GOOSIAH&rsquo;S BLESSING &middot; EXPIRES AFTER THIS WEEK
+        <img class="tok tok-17 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="">
+        GOOSIAH&rsquo;S BLESSING &middot; SHIELDED THIS WEEK
       </div>
     {% endif %}
 
@@ -109,50 +159,93 @@
         <div class="nm" {% if r.is_me %}style="color: var(--gold);"{% endif %}>{{ r.team }}</div>
         <div class="sub">
           {% if r.goose_count %}{{ r.goose_count }} goose{{ '' if r.goose_count == 1 else 's' }}
-          {%- elif r.actual_total is not none %}clean week
-          {%- elif r.proj_total %}proj {{ r.proj_total | pts }}
-          {%- else %}not locked yet{% endif %}
+          {%- elif r.actual_total is not none %}clean week &middot; {{ r.actual_total | pts }}
+          {%- elif r.at_risk %}{{ r.at_risk }} slot{{ '' if r.at_risk == 1 else 's' }} at risk
+          {%- elif r.risk_tier %}nothing to worry about
+          {%- else %}no projection yet{% endif %}
         </div>
       </div>
-      <div class="cell {% if cursed %}hot{% endif %}">
-        <div class="big" style="color: {% if cursed %}var(--ember){% else %}var(--gold){% endif %};">{{ r.chug_odds | odds }}</div>
-        <div class="sml">CHUG</div>
+
+      <div class="c-proj num">{{ r.proj_total | pts }}</div>
+
+      {# Curse and blessing marks, right of the projection, as the tokens
+         themselves. Stacked when an owner has taken more than one. #}
+      <div class="c-marks">
+        {% if cast %}
+          <div class="tok-stack">
+            {% for c in cast[:3] %}
+              <img class="tok tok-22 {% if c.sealed %}tok--sealed{% else %}tok--curse{% endif %}"
+                   src="{{ url_for('static', filename='img/goothulu.jpg') }}"
+                   alt="Cursed" title="Goothulu's curse{% if c.caster %} — {{ c.caster }}{% endif %}">
+            {% endfor %}
+          </div>
+        {% elif r.blessed %}
+          <img class="tok tok-22 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}"
+               alt="Blessed" title="Goosiah's blessing — shielded this week">
+        {% endif %}
       </div>
-      <div class="risk">
-        {% set p = (r.chug_odds or 0) | float %}
-        {% set col = 'var(--flame)' if p >= 0.40 else ('var(--ember)' if p >= 0.25 else ('var(--gold)' if p >= 0.18 else 'var(--jade)')) %}
-        <div class="big" style="color: {{ col }};">{{ r.chug_odds | pct }}</div>
-        <div class="track"><div style="height: 3px; width: {{ (p * 200) | round | int }}%; background: {{ col }};"></div></div>
+
+      <div class="c-risk">
+        {% if r.risk_tier %}
+          <span class="tier trisk-{{ r.risk_tier | tierclass }}">{{ r.risk_tier }}</span>
+          <div class="bar-track" style="margin-top: 5px;">
+            {% set pctw = ((r.risk_score or 0) / 2.6 * 100) | round | int %}
+            <div style="height: 3px; width: {{ [pctw, 100] | min }}%;
+                        background: {% if r.risk_tier == 'GOOSE BAIT' %}var(--ember){% elif r.risk_tier == 'EXPOSED' %}var(--gold){% elif r.risk_tier == 'STEADY' %}#86A05C{% else %}var(--jade){% endif %};"></div>
+          </div>
+        {% else %}
+          <span class="tier tier-unknown">—</span>
+        {% endif %}
+      </div>
+
+      {# The curse column: one tap to aim Goothulu at this owner. Replaces the
+         old chug-odds price, which nobody could act on. #}
+      <div class="c-curse">
+        {% if r.is_me %}
+          <span style="color: var(--text3); font-size: 10px;">you</span>
+        {% elif can_cast %}
+          <form method="POST" action="{{ url_for('cast_curse') }}">
+            <input type="hidden" name="week" value="{{ week }}">
+            <input type="hidden" name="target" value="{{ r.roster_id }}">
+            <button class="curse-btn" type="submit" title="Spend a token to curse {{ r.team }}">
+              <img class="tok tok-22" style="border: none; background: none;"
+                   src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="Curse">
+            </button>
+          </form>
+        {% else %}
+          <button class="curse-btn" disabled
+                  title="{% if wk.status != 'open' %}Week {{ week }} is {{ wk.status }}{% else %}No curse tokens{% endif %}">
+            <img class="tok tok-22 tok--off" style="border: none;"
+                 src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="">
+          </button>
+        {% endif %}
       </div>
     </div>
   </div>
 {% endfor %}
 
-{% if wk.status == 'open' %}
-<div style="padding: 15px 14px 20px; border-top: 6px solid var(--surf);">
+<div style="padding: 15px 14px 24px; border-top: 6px solid var(--surf);">
   <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 8px;">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ember)" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+    <img class="tok tok-22 {% if my_tokens %}tok--curse{% else %}tok--off{% endif %}" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="">
     <div class="bar" style="font-weight: 800; font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase;">Cast a curse</div>
     <div class="bar" style="margin-left: auto; font-weight: 700; font-size: 12px; color: var(--ember); letter-spacing: 0.06em;">{{ my_tokens }} HELD</div>
   </div>
-  {% if my_tokens %}
-    <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5; margin-bottom: 12px;">
-      Miss the locked projection and they chug. Beat it and they earn Goosiah&rsquo;s blessing &mdash; safe for one week.
+  {% if wk.status != 'open' %}
+    <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5;">
+      Week {{ week }} is {{ wk.status }}. Curses open when an admin opens the week, and an admin
+      can reopen a locked week &mdash; a curse cast late is still graded against the projection
+      frozen at Sunday kickoff.
+    </div>
+  {% elif my_tokens %}
+    <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5;">
+      Tap the Goothulu icon in any row to spend a token on that owner. Miss the locked projection
+      and they chug. Beat it and they earn Goosiah&rsquo;s blessing &mdash; shielded for one week.
       {% if sealed %} Targets stay sealed until Sunday kickoff.{% endif %}
     </div>
-    <form method="POST" action="{{ url_for('cast_curse') }}" style="display: flex; gap: 8px;">
-      <input type="hidden" name="week" value="{{ week }}">
-      <select class="select" name="target" required style="flex: 1;">
-        <option value="">Choose an owner…</option>
-        {% for t in targets %}<option value="{{ t.roster_id }}">{{ t.team }}</option>{% endfor %}
-      </select>
-      <button class="btn-primary btn-curse" type="submit" style="width: auto; padding: 13px 22px;">Cast</button>
-    </form>
   {% else %}
     <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5;">
       No tokens. You earn one for every chug you actually perform &mdash; owing one earns nothing.
     </div>
   {% endif %}
 </div>
-{% endif %}
 {% endblock %}

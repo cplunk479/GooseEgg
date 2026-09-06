@@ -220,11 +220,96 @@
     .chip.sel { border-color: var(--gold); background: rgba(232,185,35,0.11); color: var(--gold); }
 
     .egg { flex-shrink: 0; }
+
+    /* ------------------------------------------------------------------
+       Risk tiers. One colour ramp, five steps, used identically wherever a
+       tier appears -- a player row, a lineup, the board. Reading the same
+       colour in two places has to mean the same thing or the ramp is just
+       decoration. Cool jade at the safe end, Goothulu ember at the bad end.
+       ------------------------------------------------------------------ */
+    .tier {
+      display: inline-block; padding: 3px 7px; border-radius: 5px;
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+      font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .tier-safe       { background: #16241F; color: #4FA48F; }
+    .tier-solid      { background: #1B2318; color: #86A05C; }
+    .tier-shaky      { background: #2A2207; color: var(--gold); }
+    .tier-goose-bait { background: #2D1A0B; color: var(--ember); }
+    .tier-cooked     { background: #2B1410; color: var(--flame); }
+    .tier-unknown    { background: var(--surf2); color: var(--text3); }
+
+    /* Team rating. Deliberately a different vocabulary from the player tiers
+       -- CLEAN/STEADY/EXPOSED/GOOSE BAIT -- so nobody reads a lineup rating as
+       a player rating. Same ramp, one fewer step. */
+    .trisk-clean      { background: #16241F; color: #4FA48F; }
+    .trisk-steady     { background: #1B2318; color: #86A05C; }
+    .trisk-exposed    { background: #2A2207; color: var(--gold); }
+    .trisk-goose-bait { background: #2D1A0B; color: var(--ember); }
+
+    .bar-track { height: 3px; border-radius: 2px; background: var(--surf2); overflow: hidden; }
+
+    /* ------------------------------------------------------------------
+       Goosiah and Goothulu, the real artwork. States lifted straight from
+       the Tokens artboard in the design package.
+       ------------------------------------------------------------------ */
+    .tok {
+      border-radius: 50%; object-fit: cover; flex-shrink: 0;
+      background: var(--surf2); display: block;
+    }
+    .tok-42 { width: 42px; height: 42px; }
+    .tok-34 { width: 34px; height: 34px; }
+    .tok-22 { width: 22px; height: 22px; }
+    .tok-17 { width: 17px; height: 17px; }
+    .tok--curse  { border: 2px solid var(--ember); box-shadow: 0 0 18px rgba(196,106,30,0.5); }
+    .tok--landed { border: 2px solid var(--flame); box-shadow: 0 0 22px rgba(122,42,22,0.85); }
+    .tok--sealed { border: 2px dashed var(--ember); opacity: 0.8; }
+    .tok--bless  { border: 2px solid var(--gold); box-shadow: 0 0 20px rgba(232,185,35,0.45); }
+    .tok--spent  { border: 2px solid var(--border); opacity: 0.26; filter: grayscale(0.85); }
+    .tok--off    { border: 2px solid var(--border); opacity: 0.16; filter: grayscale(1); }
+
+    /* The shield. A blessing is the one genuinely good thing that happens in
+       this app, so it is the one thing that moves. */
+    .tok--shield {
+      border: 2px solid var(--gold);
+      animation: halo 2.4s ease-in-out infinite;
+    }
+    @keyframes halo {
+      0%, 100% { box-shadow: 0 0 10px rgba(232,185,35,0.40); }
+      50%      { box-shadow: 0 0 26px rgba(242,206,75,0.90); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .tok--shield { animation: none; box-shadow: 0 0 22px rgba(232,185,35,0.6); }
+      .live-dot { animation: none; }
+    }
+
+    .tok-stack { display: flex; align-items: center; gap: -4px; }
+    .tok-stack .tok + .tok { margin-left: -7px; }
+
+    /* Demo banner. Loud on purpose: the single worst outcome of demo mode is
+       somebody reading fake scores as real ones. */
+    .demo-bar {
+      background: repeating-linear-gradient(135deg, #3A2A05 0 10px, #2E2104 10px 20px);
+      border-bottom: 1px solid var(--gold);
+      color: var(--halo); text-align: center;
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+      font-size: 10.5px; letter-spacing: 0.18em; padding: 6px 10px;
+    }
+
+    /* Preview banner -- numbers that still move. Quieter than the demo bar,
+       because a preview is a normal state and a demo is not. */
+    .preview-note {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surf); border-bottom: 1px solid var(--border);
+      color: var(--text2); font-size: 10px; line-height: 1.45; padding: 8px 14px;
+    }
   </style>
   {% block head %}{% endblock %}
 </head>
 <body>
 <div class="app-shell">
+  {% if demo_mode %}<div class="demo-bar">DEMO MODE &middot; SIMULATED SCORES &middot; NOT A REAL WEEK</div>{% endif %}
   {% if me %}
   <div class="app-header">
     <div>

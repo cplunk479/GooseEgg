@@ -1,5 +1,119 @@
 # Changelog
 
+## [0.5.0] — 2026-09-06
+
+The chug-odds price is gone. Risk is a tier now, the board is visible before
+kickoff, and there is a demo mode for showing the thing off in September.
+
+### Changed
+- **Goose risk is a TIER, not a percentage.** The old model was honest and
+  useless to look at: its strongest signal is availability, so the board was a
+  wall of 2%s occasionally interrupted by a 90%, and what it was really
+  displaying was the injury report. Conner's read — "it's tied to injury risk,
+  which doesn't make sense" — was exactly right. The rework splits the two
+  things that were tangled:
+  - **Availability is a label.** `OUT`, `ON BYE`, `DOUBTFUL`, `EMPTY SLOT`,
+    `PROJECTED ZERO` say so in as many words and drop straight to the worst
+    tier. Nobody needs a probability to understand "he isn't playing."
+  - **Quality is a ratio.** Where does this player's projection fall against
+    the average starter projection at his position, this week, in this league?
+    A 9-point projection is a fine week for a tight end and a disaster for a
+    quarterback; the raw number was never comparable across a lineup.
+
+  Five tiers — `SAFE` / `SOLID` / `SHAKY` / `GOOSE BAIT` / `COOKED` — with cut
+  points **measured, not guessed**, in `analysis/fit_tiers.py` over 35,144
+  starter-slots (22 leagues, 2021-2025). P(goose) runs 1.1% → 11.3% across the
+  ramp, monotonic at every position, and it holds in Dynasty Dons on its own
+  3,925 slots (0.9% → 10.8%). The old raw-projection bands gave roughly 2x of
+  usable spread once availability was stripped out; this gives 10x.
+- **Teams get a rating from the mix**, not a price: `CLEAN` / `STEADY` /
+  `EXPOSED` / `GOOSE BAIT`, from the mean tier weight per starting slot
+  (normalised, so a superflex lineup does not look permanently more dangerous
+  than a standard one). Measured P(at least one goose): 11% / 16% / 30% / 43%.
+  Band names were chosen so the MEDIAN lineup does not read as an emergency —
+  the average team scores 1.38, which is `EXPOSED`, which really is a one in
+  three week.
+- **The chug-odds column is gone from the Board**, and the space it took is now
+  a curse column: tap Goothulu in any row to spend a token on that owner. The
+  old price was a number nobody could act on sitting where an action belonged.
+- **Goose Watch sorts by game time remaining**, ascending, within each group —
+  closest to settled at the top, anything that has not kicked off at the
+  bottom. Sorting by risk put a 9pm kickoff above a player with two minutes
+  left, which is backwards. `POS-TEAM` is now just the team; the slot column
+  already says the position. "Cleared" moved above "Yet to play" so the
+  not-yet-started rows really are last.
+
+### Added
+- **A live preview before the week locks.** The projection maths came out of
+  `lock_week` into a shared `project_week()`; `lock_week` now persists what it
+  returns and the Board and My Geese render it directly. Before this the board
+  was blank until Sunday kickoff — not because anything was broken, but because
+  the numbers did not exist until the moment they were frozen. Preview screens
+  say so in a banner: these move, the frozen ones do not.
+- **Admin unlock.** A locked week can go back to `open` so people can still
+  cast. It does **not** hand anything a fresh number: every `threshold_proj`
+  already stamped stays put, and a curse cast during the unlocked window
+  inherits that same kickoff figure (`cast_curse` stamps it on the spot; the
+  re-lock only freezes curses whose threshold is still NULL). Cast early or
+  cast late, the bar is the same — otherwise cursing late would be strictly
+  better, which is the whole failure the frozen threshold exists to prevent.
+  Refuses on a settled week; that is Reset's job.
+- **Admin reset.** `Reset week` unwinds a week as if it had never been played;
+  `Reset season` clears the board entirely. Both behind a typed confirmation
+  (`RESET WEEK 3`) rather than a browser dialog — one distracted click should
+  not cost a season, and a `confirm()` also blocks automation dead. Curses are
+  rewound to `cast` rather than deleted and their tokens stay spent: the
+  economy spans weeks, so handing tokens back for a week you are only
+  re-testing would quietly inflate everyone's balance. Owners, PINs and rules
+  survive both.
+- **Demo mode.** A fake but realistic mid-Sunday week 1 — early games final,
+  the afternoon slate in the fourth quarter, the late slate still to come.
+  Real players, real lineups, real projections; only the clock and the points
+  are invented, and the gooses are hand-placed so every row state is on screen
+  at once. It works by replacing what Sleeper says (one seam, three functions
+  in `sleeper.py`), so every screen and the whole engine run over it
+  completely unmodified — which is the only way a demo proves anything about
+  the real thing. The one exception is a handful of curses, tokens and
+  blessings, which have to be real rows to render; every one is flagged
+  `is_demo` and deleted on the way out.
+  **`/poll` refuses to lock, settle or advance while demo mode is on** — four
+  of those games say FINAL, and auto-settle against them would raise real
+  chugs and mint real tokens off invented scores.
+- **The real Goothulu and Goosiah artwork**, from the design package, replacing
+  the placeholder SVG eggs: curse tokens on the Board, My Geese and Standings,
+  in their held / sealed / landed / spent states, and a glowing shield for an
+  active blessing (which stops animating under `prefers-reduced-motion`).
+- **Player headshots in the My Geese lineup**, same Sleeper CDN path as Goose
+  Watch.
+- **A "Most cursed by Goothulu" banner** on the Board and Standings — season
+  leader in curses absorbed, hidden below two so a single week-1 curse does not
+  crown anybody.
+- **`filters.py`.** The Jinja filters moved out of `app.py` so
+  `tests/test_templates.py` imports the real ones instead of keeping its own
+  copies. They had already drifted once.
+- **`tests/test_demo.py`.** Stubs Sleeper at `_get_json` — the one function
+  that touches the network — and runs everything above it for real: the demo
+  build, the seam, tiers, `lock_week`'s snapshot, Goose Watch's sorting, and a
+  full Flask render of every screen with the demo installed. `test_templates.py`
+  now renders with `StrictUndefined`, which is what caught a real mismatch
+  between the preview and snapshot row shapes on My Geese.
+
+### Schema
+Additive only, via `db_init.MIGRATIONS`, which runs on every init:
+`lineup_slots.tier`, `.proj_ratio`, `.risk_reason`; `team_weeks.risk_tier`,
+`.risk_score`, `.at_risk`; `weeks.unlocked_at`, `.unlocked_by`; and `is_demo`
+on `curses`, `curse_tokens`, `blessings`, `chugs`. Run `python db_init.py`
+after deploying — nothing drops, nothing changes type.
+
+### Still outstanding
+- The `/poll` pinger is still not set up on Render.
+- Discord webhook still deferred, per Conner.
+- Nothing here has run against live Sleeper: no egress to `api.sleeper.app`
+  from either shell this was built in. The payload shapes in
+  `tests/test_demo.py` come from the field names recorded in `sleeper.py`,
+  which were read off a real response — but **the first live demo build is
+  still the test that closes that gap.** Do it before showing anyone.
+
 ## [0.4.0] — 2026-09-06
 
 Goose Watch tightened after the first real click-through on Render.

@@ -75,6 +75,7 @@ def to_sqlite(sql: str) -> str:
     sql = sql.replace("SERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT")
     sql = re.sub(r"NUMERIC\(\d+,\s*\d+\)", "REAL", sql)
     sql = sql.replace("BIGINT", "INTEGER").replace("BOOLEAN", "INTEGER")
+    sql = sql.replace("DEFAULT FALSE", "DEFAULT 0").replace("DEFAULT TRUE", "DEFAULT 1")
     return sql
 
 
@@ -119,6 +120,9 @@ class FakeSleeper:
         self.starters = {}
         self.points = {}
         self.totals = {}
+        # Every starter projects this many points. Settable so a test can move
+        # Sleeper's projections mid-week, which is the whole point of freezing.
+        self.projection_points = 0.0
 
     def starting_slots(self, league_id):
         return SLOTS
@@ -133,7 +137,7 @@ class FakeSleeper:
         return set()
 
     def player_points(self, stats, scoring):
-        return 0.0
+        return self.projection_points
 
     def week_lock_epoch(self, season, week):
         return 1_700_000_000
@@ -157,6 +161,16 @@ def build_db(fake_sleeper) -> FakeDB:
     db = FakeDB()
     for stmt in db_init.TABLES:
         db.execute(to_sqlite(stmt))
+    # The migration list has to run here too, or this test builds a v0.4 schema
+    # and every v0.5 statement fails on a column that ships in production.
+    # SQLite has no ADD COLUMN IF NOT EXISTS, so the guard is a try/except on
+    # the duplicate -- which is what the Postgres clause does anyway.
+    for stmt in db_init.MIGRATIONS:
+        try:
+            db.execute(to_sqlite(stmt.replace(" IF NOT EXISTS", "")))
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc):
+                raise
     for stmt in db_init.INDEXES:
         db.execute(stmt)
     for key, value in __import__("settings").DEFAULTS.items():
@@ -386,9 +400,12 @@ def test_empty_slot_gooses() -> None:
     check("the empty slot gooses", r["gooses"] == 1, str(r["gooses"]))
     g = db.execute("SELECT * FROM gooses WHERE roster_id = 2").fetchone()
     check("it is flagged as an empty slot, not a bad player", bool(g["empty_slot"]))
-    check("an empty slot prices as certain",
-          db.execute("SELECT goose_prob FROM lineup_slots WHERE roster_id = 2 AND slot_index = 0"
-                     ).fetchone()["goose_prob"] == 1.0)
+    slot = db.execute(
+        "SELECT tier, risk_reason FROM lineup_slots "
+        "WHERE roster_id = 2 AND slot_index = 0").fetchone()
+    check("an empty slot is COOKED, and the snapshot says why",
+          slot["tier"] == goose.COOKED and slot["risk_reason"] == "EMPTY SLOT",
+          str(dict(slot)))
     db.close()
 
 
@@ -434,6 +451,130 @@ def test_curse_needs_open_week() -> None:
     db.close()
 
 
+def test_unlock_holds_the_frozen_threshold() -> None:
+    """
+    The integrity property behind the admin unlock, and the one worth a test:
+    reopening a week must not hand anybody a fresher projection.
+
+    Two curses -- one cast before the lock, one cast during the unlocked window
+    -- must be graded against the SAME number, even after the underlying
+    projection has moved and the week is locked a second time.
+    """
+    print("\nunlocking a week does not move the bar")
+    fs = FakeSleeper()
+    db = build_db(fs)
+    for rid in range(1, 5):
+        st, pts = lineup(*([10.0] * 11))
+        fs.starters[rid], fs.points[rid] = st, pts
+        fs.totals[rid] = sum(pts)
+
+    fs.projection_points = 9.0            # every starter projects 9.0
+    engine.open_week(db, LEAGUE, SEASON, 1, 1)
+    engine.mint_token(db, SEASON, 1, 1, "admin")
+    engine.mint_token(db, SEASON, 2, 1, "admin")
+    db.commit()
+
+    early = engine.cast_curse(db, SEASON, 1, 1, 4)
+    check("the early curse casts", early["ok"], str(early))
+    check("it carries no threshold before the lock", early.get("threshold_proj") is None)
+
+    engine.lock_week(db, LEAGUE, SEASON, 1)
+    frozen = db.execute(
+        "SELECT threshold_proj FROM curses WHERE id = %s", (early["curse_id"],)
+    ).fetchone()["threshold_proj"]
+    check("locking freezes the early curse", frozen is not None, str(frozen))
+
+    r = engine.unlock_week(db, SEASON, 1, 1)
+    check("unlock succeeds on a locked week", r["ok"], str(r))
+    check("it reports the thresholds it is holding", r["thresholds_held"] == 1, str(r))
+    check("the week is open again",
+          engine.get_week(db, SEASON, 1)["status"] == "open")
+    check("the early threshold survived the unlock",
+          db.execute("SELECT threshold_proj FROM curses WHERE id = %s",
+                     (early["curse_id"],)).fetchone()["threshold_proj"] == frozen)
+
+    # Sleeper's projections move, as they do all week. A curse cast now, on a
+    # different target (one curse per target is the default rule), must still
+    # be graded against that target's KICKOFF projection.
+    frozen_3 = db.execute(
+        "SELECT proj_total FROM team_weeks WHERE season = %s AND week = 1 AND roster_id = 3",
+        (SEASON,)).fetchone()["proj_total"]
+    fs.projection_points = 4.0
+    late = engine.cast_curse(db, SEASON, 1, 2, 3)
+    check("a curse casts during the unlocked window", late["ok"], str(late))
+    check("the late curse inherits the KICKOFF number, not the new one",
+          late.get("threshold_proj") == frozen_3,
+          f"late {late.get('threshold_proj')} vs frozen {frozen_3}")
+    check("and that number is the pre-move projection", frozen_3 == frozen, str(frozen_3))
+
+    engine.lock_week(db, LEAGUE, SEASON, 1, force=True)
+    after = {r["id"]: r["threshold_proj"] for r in db.execute(
+        "SELECT id, threshold_proj FROM curses WHERE season = %s AND week = 1", (SEASON,)
+    ).fetchall()}
+    check("re-locking moves nobody's threshold",
+          all(v == frozen for v in after.values()), str(after))
+    check("both curses are graded against the same bar", len(set(after.values())) == 1, str(after))
+
+    check("unlock refuses on a settled week",
+          not engine.unlock_week(db, SEASON, 2, 1)["ok"] and
+          not (engine.settle_week(db, LEAGUE, SEASON, 1) and
+               engine.unlock_week(db, SEASON, 1, 1))["ok"])
+    db.close()
+
+
+def test_reset_week_unwinds_everything() -> None:
+    """
+    A reset has to leave nothing behind. The failure this guards against is a
+    half-unwind -- a token still sitting in someone's balance minted by a chug
+    that no longer exists -- which would quietly inflate the curse economy
+    every time the commissioner re-tested a week.
+    """
+    print("\nresetting a week leaves nothing behind")
+    fs = FakeSleeper()
+    db = build_db(fs)
+    for rid in range(1, 5):
+        st, pts = lineup(0.0, 0.0, *([10.0] * 9))
+        fs.starters[rid], fs.points[rid] = st, pts
+        fs.totals[rid] = sum(pts)
+
+    engine.open_week(db, LEAGUE, SEASON, 1, 1)
+    engine.mint_token(db, SEASON, 1, 1, "admin")
+    db.commit()
+    engine.cast_curse(db, SEASON, 1, 1, 3)
+    engine.lock_week(db, LEAGUE, SEASON, 1)
+    engine.settle_week(db, LEAGUE, SEASON, 1)
+
+    owed = db.execute("SELECT id FROM chugs WHERE season = %s", (SEASON,)).fetchall()
+    check("the week produced chugs to unwind", len(owed) > 0, str(len(owed)))
+    engine.confirm_chug(db, SEASON, owed[0]["id"], 1)
+    minted = db.execute(
+        "SELECT COUNT(*) AS n FROM curse_tokens WHERE source = 'chug'").fetchone()["n"]
+    check("confirming minted a token", minted == 1, str(minted))
+
+    r = engine.reset_week(db, SEASON, 1)
+    check("reset reports what it removed", r["ok"] and r["gooses"] > 0, str(r))
+    for table in ("gooses", "chugs", "lineup_slots", "team_weeks"):
+        n = db.execute(f"SELECT COUNT(*) AS n FROM {table} WHERE season = %s",
+                       (SEASON,)).fetchone()["n"]
+        check(f"{table} is empty for the week", n == 0, str(n))
+    check("the unspent minted token is gone",
+          db.execute("SELECT COUNT(*) AS n FROM curse_tokens WHERE source = 'chug'"
+                     ).fetchone()["n"] == 0)
+    curse = db.execute("SELECT * FROM curses WHERE season = %s", (SEASON,)).fetchone()
+    check("the curse is rewound to cast, not deleted",
+          curse and curse["status"] == "cast" and curse["threshold_proj"] is None,
+          str(dict(curse) if curse else None))
+    check("its token stays spent -- the economy spans weeks",
+          curse["token_id"] is not None and db.execute(
+              "SELECT spent_on FROM curse_tokens WHERE id = %s", (curse["token_id"],)
+          ).fetchone()["spent_on"] is not None)
+    check("the week is back to upcoming",
+          engine.get_week(db, SEASON, 1)["status"] == "upcoming")
+    check("owners survive a reset",
+          db.execute("SELECT COUNT(*) AS n FROM owners").fetchone()["n"] == 4)
+    db.close()
+
+
 def main() -> int:
     test_full_week()
     test_blessing_blocks()
@@ -442,6 +583,8 @@ def main() -> int:
     test_empty_slot_gooses()
     test_settle_is_idempotent()
     test_curse_needs_open_week()
+    test_unlock_holds_the_frozen_threshold()
+    test_reset_week_unwinds_everything()
     print()
     if failures:
         print(f"{len(failures)} FAILED: " + ", ".join(failures))

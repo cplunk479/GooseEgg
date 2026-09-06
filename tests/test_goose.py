@@ -5,11 +5,17 @@ Runs with plain python -- no pytest, no database, no network:
 
     python tests/test_goose.py
 
-Two halves. The first is ordinary unit testing of the detection and odds
-arithmetic. The second is a CALIBRATION test against real Dynasty Dons
-history out of the Obsidian vault's fantasy.db: it runs the shipped model
-over 2024 and 2025 lineups and checks that the gooses it PREDICTS match the
-gooses that actually happened.
+Two halves. The first is ordinary unit testing of detection and of the tier
+arithmetic. The second is a CALIBRATION test against real Dynasty Dons history
+out of the Obsidian vault's fantasy.db: it assigns the shipped tiers to 2024
+and 2025 lineups and checks that the gooses in each tier actually come out in
+the order the tiers claim.
+
+A tier model fails differently from a probability model, so the calibration
+asks a different question than it did in v0.4. Not "is the number right" but
+"do the tiers SEPARATE" -- does COOKED really goose several times more often
+than SAFE, at every position. A five-step ramp where the steps are all the
+same height is worse than useless: it looks like information and is not.
 
 That second half is the one that matters. The FAAB app shipped a URL that
 404'd for a day because a mocked test proved the parsing and never the real
@@ -75,55 +81,100 @@ def test_detection() -> None:
     check("a missing points entry gooses rather than crashing", len(short) == 1)
 
 
-# --------------------------------------------------------------- prediction
+# --------------------------------------------------------------------- tiers
 
-def test_probability() -> None:
-    print("\nprobability -- availability dominates, and the table is monotonic")
-    check("empty slot is certain", goose.player_goose_probability(player_id="0") == 1.0)
-    check(
-        "bye week is near certain",
-        goose.player_goose_probability(player_id="1", position="WR", projection=14.0, on_bye=True) > 0.9,
-    )
-    check(
-        "an OUT designation beats a great projection",
-        goose.player_goose_probability(player_id="1", position="RB", projection=19.0, injury_status="Out") > 0.8,
-    )
-    check(
-        "questionable raises risk but is not a sentence",
-        0.1 < goose.player_goose_probability(player_id="1", position="WR", projection=9.0, injury_status="Questionable") < 0.4,
-    )
-    check(
-        "a zero projection is read as 'not playing'",
-        goose.player_goose_probability(player_id="1", position="WR", projection=0.4) > 0.5,
-    )
-    check(
-        "a healthy WR1 is low risk",
-        goose.player_goose_probability(player_id="1", position="WR", projection=17.0) < 0.05,
-    )
+def test_tiers() -> None:
+    print("\nrisk tiers -- availability is a label, quality is a ratio")
 
-    for pos, rates in goose.BASE_RATES.items():
-        check(f"{pos} base rates never rise with projection", list(rates) == sorted(rates, reverse=True), str(rates))
+    bar = 12.0
+    check("well above the bar is SAFE",
+          goose.player_risk(player_id="1", position="WR", projection=18.0, position_avg=bar)["tier"] == goose.SAFE)
+    check("around the bar is SOLID",
+          goose.player_risk(player_id="1", position="WR", projection=12.0, position_avg=bar)["tier"] == goose.SOLID)
+    check("well under the bar is GOOSE BAIT",
+          goose.player_risk(player_id="1", position="WR", projection=6.0, position_avg=bar)["tier"] == goose.BAIT)
+    check("barely projected is COOKED",
+          goose.player_risk(player_id="1", position="WR", projection=3.0, position_avg=bar)["tier"] == goose.COOKED)
 
-    check(
-        "an unknown position falls back rather than crashing",
-        0 < goose.player_goose_probability(player_id="1", position="LB", projection=6.0) < 1,
-    )
+    # The whole point of the rework: these say WHY, they do not hide it in a number.
+    empty = goose.player_risk(player_id=None)
+    check("an empty slot is COOKED and says so", empty["tier"] == goose.COOKED and empty["reason"] == "EMPTY SLOT")
+    bye = goose.player_risk(player_id="1", position="RB", projection=17.0, position_avg=bar, on_bye=True)
+    check("a bye beats a great projection", bye["tier"] == goose.COOKED and bye["reason"] == "ON BYE")
+    out = goose.player_risk(player_id="1", position="RB", projection=19.0, position_avg=bar, injury_status="Out")
+    check("OUT beats a great projection", out["tier"] == goose.COOKED and out["reason"] == "OUT")
+    zero = goose.player_risk(player_id="1", position="WR", projection=0.4, position_avg=bar)
+    check("a zero projection reads as 'not playing'",
+          zero["tier"] == goose.COOKED and zero["reason"] == "PROJECTED ZERO")
+
+    q_healthy = goose.player_risk(player_id="1", position="WR", projection=12.0, position_avg=bar)
+    q_doubt = goose.player_risk(player_id="1", position="WR", projection=12.0, position_avg=bar,
+                                injury_status="Questionable")
+    check("questionable moves a player exactly one tier worse",
+          goose.TIER_INDEX[q_doubt["tier"]] == goose.TIER_INDEX[q_healthy["tier"]] + 1)
+    check("questionable says so", q_doubt["reason"] == "QUESTIONABLE")
+
+    # A missing projection must NOT be read as a bad one. Getting this wrong in
+    # v0.4 was most of the model's over-prediction: a starter with no history is
+    # usually a rookie somebody drafted on purpose.
+    unknown = goose.player_risk(player_id="1", position="WR", projection=None, position_avg=bar)
+    check("no projection parks mid-table rather than condemning",
+          unknown["tier"] == goose.SHAKY and unknown["reason"] == "NO PROJECTION")
+
+    check("an unknown position falls back rather than crashing",
+          goose.player_risk(player_id="1", position="LB", projection=6.0, position_avg=None)["tier"] in goose.TIERS)
+
+    # Monotonic by construction: a better projection may never carry MORE risk.
+    tiers = [goose.player_risk(player_id="1", position="WR", projection=p, position_avg=bar)["tier"]
+             for p in (2, 4, 6, 8, 10, 12, 14, 16, 20)]
+    ranks = [goose.TIER_INDEX[t] for t in tiers]
+    check("tier never worsens as the projection rises", ranks == sorted(ranks, reverse=True), str(tiers))
+    weights = [goose.TIER_WEIGHT[t] for t in goose.TIERS]
+    check("tier weights rise with severity", weights == sorted(weights), str(weights))
+    rates = [goose.TIER_RATE[t] for t in goose.TIERS]
+    check("tier rates rise with severity", rates == sorted(rates), str(rates))
 
 
-def test_odds() -> None:
-    print("\nodds -- team chug odds and the sportsbook price")
-    check("no risk is still bounded", goose.team_chug_odds([0, 0, 0]) <= 0.01)
-    check("a certainty is bounded below 1", goose.team_chug_odds([1.0]) <= 0.995)
-    combined = goose.team_chug_odds([0.1, 0.1])
-    check("two 10% starters give 19%", abs(combined - 0.19) < 0.001, f"got {combined}")
-    check("odds never fall as risk is added", goose.team_chug_odds([0.1, 0.1]) > goose.team_chug_odds([0.1]))
+def test_position_averages() -> None:
+    print("\nposition averages -- the week's own bar, not a number from a table")
+    starters = ([{"position": "WR", "projection": p} for p in (10, 12, 14, 8, 16)]
+                + [{"position": "QB", "projection": p} for p in (20, 24)])
+    avg = goose.position_averages(starters)
+    check("averages the real starters", abs(avg["WR"] - 12.0) < 0.01, str(avg))
+    check("too few starters falls back to the measured league mean",
+          abs(avg["QB"] - goose.FALLBACK_POSITION_AVG["QB"]) < 0.01, str(avg))
 
-    check("26% prices at +285", goose.american_price(0.26) == "+285", goose.american_price(0.26))
-    check("49% prices at +105", goose.american_price(0.49) == "+105", goose.american_price(0.49))
-    check("a favourite prices negative", goose.american_price(0.75).startswith("-"))
-    for p in (0.05, 0.12, 0.26, 0.35, 0.49, 0.62, 0.88):
-        back = goose.implied_probability(goose.american_price(p))
-        check(f"round-trips {int(p * 100)}%", abs(back - p) < 0.01, f"got {back:.3f}")
+    # Empty slots and non-playing starters must not drag the bar down -- they
+    # are the thing being measured against it.
+    polluted = starters + [{"position": "WR", "projection": 0.0} for _ in range(5)]
+    check("zeros are excluded from the bar",
+          abs(goose.position_averages(polluted)["WR"] - 12.0) < 0.01)
+    check("an empty starter list does not crash", goose.position_averages([]) == {})
+
+
+def test_team_risk() -> None:
+    print("\nteam risk -- a rating from the mix, normalised for lineup size")
+    clean = goose.team_risk([goose.SAFE] * 11)
+    check("an all-SAFE lineup is CLEAN", clean["tier"] == "CLEAN", str(clean))
+    check("nothing at risk in a clean lineup", clean["at_risk"] == 0)
+
+    bad = goose.team_risk([goose.COOKED, goose.COOKED, goose.BAIT] + [goose.SHAKY] * 8)
+    check("a lineup full of holes is GOOSE BAIT", bad["tier"] == "GOOSE BAIT", str(bad))
+    check("at_risk counts GOOSE BAIT and worse", bad["at_risk"] == 3, str(bad["at_risk"]))
+    check("worst tier is surfaced", bad["worst"] == goose.COOKED)
+
+    # Normalised, so a nine-man lineup and an eleven-man lineup with the same
+    # mix rate the same. Before this it did not, and a superflex league looked
+    # permanently more dangerous than a standard one.
+    nine = goose.team_risk([goose.SHAKY] * 9)
+    eleven = goose.team_risk([goose.SHAKY] * 11)
+    check("lineup size does not move the rating", nine["tier"] == eleven["tier"])
+    check("empty lineup returns no rating rather than a fake one",
+          goose.team_risk([])["tier"] is None)
+
+    ratings = [goose.team_risk([t] * 10)["tier"] for t in goose.TIERS]
+    ranks = [goose.TEAM_INDEX[r] for r in ratings]
+    check("team rating never improves as tiers worsen", ranks == sorted(ranks), str(ratings))
 
 
 # -------------------------------------------------------------- calibration
@@ -137,7 +188,7 @@ def _load_history():
 
 
 def test_calibration() -> None:
-    print("\ncalibration -- the shipped model against real Dynasty Dons weeks")
+    print("\ncalibration -- the shipped tiers against real Dynasty Dons weeks")
     conn = _load_history()
     if conn is None:
         print(f"  skip  no history db at {HISTORY_DB}")
@@ -152,7 +203,7 @@ def test_calibration() -> None:
         LEFT JOIN player_stats ps
                ON ps.player_id = rs.player_id AND ps.season = rs.season AND ps.week = rs.week
         LEFT JOIN players p ON p.player_id = rs.player_id
-        WHERE rs.slot != 'BN' AND rs.week BETWEEN 1 AND 14
+        WHERE rs.slot != 'BN' AND rs.week BETWEEN 3 AND 17
           AND rs.league_id IN (%s)
         """ % ",".join("?" * len(leagues)),
         leagues,
@@ -161,8 +212,10 @@ def test_calibration() -> None:
         print("  skip  Dynasty Dons seasons not present in the history db")
         return
 
-    # Prior-week average stands in for a projection -- it is what the base
-    # rates in goose.py were banded on. The real app feeds live projections.
+    # Prior-week average stands in for a projection -- it is what the cut
+    # points were fitted on. The real app feeds live Sleeper projections.
+    # Weeks 1-2 are excluded above because two games of history is not an
+    # average, it is noise.
     history = defaultdict(dict)
     for r in conn.execute("SELECT player_id, season, week, pts_ppr FROM player_stats WHERE week BETWEEN 1 AND 17"):
         history[(r[0], r[1])][r[2]] = r[3] or 0.0
@@ -172,60 +225,110 @@ def test_calibration() -> None:
         prior = [v for w, v in weeks.items() if w < week]
         return sum(prior) / len(prior) if prior else None
 
-    predicted_by_week = defaultdict(float)
-    actual_by_week = defaultdict(int)
-    team_probs = defaultdict(list)
-
+    # The bar has to be computed the way the app computes it: per league-week,
+    # per position, over that week's actual starters.
+    by_week = defaultdict(list)
     for r in rows:
-        proj = projection_for(r["player_id"], r["season"], r["week"])
-        p = goose.player_goose_probability(
-            player_id=r["player_id"], position=r["pos"], projection=proj,
-            # prior-week average, not a forecast -- see the flag's docstring
-            projection_is_forecast=False,
-        )
-        key = (r["season"], r["week"])
-        predicted_by_week[key] += p
-        team_probs[(r["season"], r["week"], r["roster_id"])].append(p)
-        if goose.is_goose(r["pts"], r["player_id"]):
-            actual_by_week[key] += 1
+        by_week[(r["league_id"], r["season"], r["week"])].append(r)
 
-    n_weeks = len(actual_by_week)
-    predicted = sum(predicted_by_week.values()) / n_weeks
-    actual = sum(actual_by_week.values()) / n_weeks
-    print(f"  {n_weeks} league-weeks, {len(rows)} starter-slots")
-    print(f"  predicted {predicted:.2f} gooses/week   actual {actual:.2f} gooses/week")
+    per_tier = defaultdict(lambda: [0, 0])          # tier -> [slots, gooses]
+    per_pos_tier = defaultdict(lambda: [0, 0])      # (pos, tier) -> [slots, gooses]
+    team_band = defaultdict(lambda: [0, 0])         # band -> [team-weeks, weeks with a goose]
+    total_gooses = 0
 
-    check(
-        "predicted goose rate is within 0.5/week of reality",
-        abs(predicted - actual) < 0.5,
-        f"predicted {predicted:.2f} vs actual {actual:.2f}",
-    )
-    check(
-        "predicted rate is in the plausible 2-6 per week band",
-        2.0 <= predicted <= 6.0,
-        f"{predicted:.2f}",
-    )
+    for key, week_rows in by_week.items():
+        starters = [{"position": r["pos"], "projection": projection_for(
+            r["player_id"], r["season"], r["week"])} for r in week_rows]
+        avg = goose.position_averages(starters)
 
-    odds = [goose.team_chug_odds(v) for v in team_probs.values()]
-    mean_odds = sum(odds) / len(odds)
-    goosed_team_weeks = defaultdict(bool)
-    for r in rows:
-        if goose.is_goose(r["pts"], r["player_id"]):
-            goosed_team_weeks[(r["season"], r["week"], r["roster_id"])] = True
-    actual_team_rate = sum(1 for k in team_probs if goosed_team_weeks.get(k)) / len(team_probs)
-    print(f"  mean team chug odds {mean_odds:.1%}   actual team-week goose rate {actual_team_rate:.1%}")
-    check(
-        "mean team chug odds are within 4 points of the real team-week rate",
-        abs(mean_odds - actual_team_rate) < 0.04,
-        f"{mean_odds:.1%} vs {actual_team_rate:.1%}",
-    )
+        by_roster = defaultdict(list)
+        for r in week_rows:
+            risk = goose.player_risk(
+                player_id=r["player_id"], position=r["pos"],
+                projection=projection_for(r["player_id"], r["season"], r["week"]),
+                position_avg=avg.get((r["pos"] or "").upper()),
+            )
+            goosed = goose.is_goose(r["pts"], r["player_id"])
+            total_gooses += int(goosed)
+            per_tier[risk["tier"]][0] += 1
+            per_tier[risk["tier"]][1] += int(goosed)
+            per_pos_tier[((r["pos"] or "?"), risk["tier"])][0] += 1
+            per_pos_tier[((r["pos"] or "?"), risk["tier"])][1] += int(goosed)
+            by_roster[r["roster_id"]].append((risk["tier"], goosed))
+
+        for rid, slots in by_roster.items():
+            if len(slots) < 8:
+                continue
+            band = goose.team_risk([t for t, _ in slots])["tier"]
+            team_band[band][0] += 1
+            team_band[band][1] += int(any(g for _, g in slots))
+
+    print(f"  {len(by_week)} league-weeks, {len(rows)} starter-slots, {total_gooses} gooses")
+    print("  tier          slots   P(goose)")
+    observed = []
+    for tier in goose.TIERS:
+        n, g = per_tier[tier]
+        rate = (g / n) if n else 0.0
+        observed.append(rate)
+        print(f"  {tier:<12} {n:>6}   {rate:>7.2%}")
+
+    check("every tier has a usable sample", all(per_tier[t][0] >= 100 for t in goose.TIERS),
+          str({t: per_tier[t][0] for t in goose.TIERS}))
+    check("goose rate rises monotonically from SAFE to COOKED",
+          observed == sorted(observed), str([round(r, 4) for r in observed]))
+    check("COOKED gooses at least 4x as often as SAFE",
+          observed[-1] >= observed[0] * 4,
+          f"SAFE {observed[0]:.2%} vs COOKED {observed[-1]:.2%}")
+
+    # The shipped TIER_RATE constants are what the UI quotes back to people.
+    # If reality has drifted away from them, the copy on the screen is lying.
+    for tier in goose.TIERS:
+        n, g = per_tier[tier]
+        if n < 100:
+            continue
+        rate = g / n
+        check(f"{tier} matches its published rate within 3 points",
+              abs(rate - goose.TIER_RATE[tier]) < 0.03,
+              f"observed {rate:.2%} vs published {goose.TIER_RATE[tier]:.2%}")
+
+    # A ramp that only works in aggregate would be hiding a position where it
+    # is flat or backwards -- which is exactly the bug the old raw-projection
+    # bands had.
+    for pos in ("QB", "RB", "WR", "TE"):
+        rates = []
+        for tier in goose.TIERS:
+            n, g = per_pos_tier[(pos, tier)]
+            if n >= 40:
+                rates.append(g / n)
+        if len(rates) >= 4:
+            check(f"{pos} tiers separate in the right direction",
+                  rates[-1] >= rates[0],
+                  f"SAFE-end {rates[0]:.2%} vs COOKED-end {rates[-1]:.2%}")
+
+    print("  team rating   team-weeks   P(>=1 goose)")
+    team_rates = []
+    for band in goose.TEAM_TIERS:
+        n, g = team_band[band]
+        rate = (g / n) if n else 0.0
+        team_rates.append(rate if n >= 30 else None)
+        print(f"  {band:<12} {n:>10}   {rate:>10.1%}")
+    seen = [r for r in team_rates if r is not None]
+    check("team ratings separate in the right direction",
+          seen == sorted(seen), str([None if r is None else round(r, 3) for r in seen]))
+
+    per_team_week = total_gooses / max(1, sum(n for n, _ in team_band.values()))
+    league_week = per_team_week * 12
+    print(f"  {league_week:.1f} gooses per league-week across twelve teams")
+    check("the league-wide rate is still in the plausible 2-6 band",
+          2.0 <= league_week <= 6.0, f"{league_week:.2f}")
     conn.close()
 
 
 def main() -> int:
     test_detection()
-    test_probability()
-    test_odds()
+    test_tiers()
+    test_position_averages()
+    test_team_risk()
     test_calibration()
     print()
     if failures:

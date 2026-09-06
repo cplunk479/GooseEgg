@@ -23,6 +23,16 @@ game in the feed is `pending`, never `final` -- see the warning in
 sleeper.game_state_by_team. The same reasoning is why a Q1 zero is `pending`
 too: it hasn't earned "danger" yet.
 
+Ordering, added in v0.5
+-----------------------
+Rows sort by GAME SECONDS REMAINING, ascending, so the closest thing to a
+settled outcome is always at the top of its group and anything that has not
+kicked off falls to the bottom. Sorting by risk (what it did before) put a
+9pm kickoff above a player with two minutes left, which is backwards: the
+board answers "what is about to become true", and time left is that. Games
+that have not started have no seconds remaining at all -- None, not zero --
+so they sort last rather than first.
+
 This module reads. It never writes: nothing here settles a week, raises a chug
 or resolves a curse. Sunday's screen is a view of a week that settle_week
 grades later, off final scores, once every game is genuinely over. If this
@@ -36,13 +46,32 @@ import sleeper
 GOOSED, DANGER, PENDING, SAFE = "goosed", "danger", "pending", "safe"
 
 # A starter is worth calling out as "escaped" only if the model actually
-# feared him. Everyone else scoring points is just Sunday happening.
-CLEARED_THRESHOLD = 0.10
+# feared him -- SHAKY or worse. Everyone else scoring points is just Sunday
+# happening. Was a probability threshold before v0.5; it is a tier now, which
+# is the same idea with a name a person can read.
 
 
 # A live zero only counts as "danger" from the 4th quarter on -- see the
 # module docstring. Anything before that is just Sunday happening.
 DANGER_FROM_QUARTER = 4
+
+
+# Sorting key. `seconds_left` is None before kickoff, so a plain ascending
+# sort would put not-yet-played games first -- exactly wrong. The leading flag
+# pushes those to the bottom, and the risk tier breaks ties inside a group of
+# games sitting on the same clock.
+_NOT_STARTED = 1
+
+
+def _by_time_left(row: dict):
+    left = row.get("seconds_left")
+    if left is None:
+        return (_NOT_STARTED, 0, -_tier_rank(row), row.get("owner") or "")
+    return (0, left, -_tier_rank(row), row.get("owner") or "")
+
+
+def _tier_rank(row: dict) -> int:
+    return goose.TIER_INDEX.get(row.get("tier"), 0)
 
 
 def _classify(points, player_id, game_state: str | None, quarter: int | None) -> str:
@@ -86,8 +115,8 @@ def build(db, league_id: str, season: int, week: int) -> dict:
     }
     snapshot = {
         (r["roster_id"], r["slot_index"]): r for r in db.execute(
-            "SELECT roster_id, slot_index, slot, goose_prob, proj_pts FROM lineup_slots "
-            "WHERE season = %s AND week = %s",
+            "SELECT roster_id, slot_index, slot, goose_prob, proj_pts, tier, risk_reason "
+            "FROM lineup_slots WHERE season = %s AND week = %s",
             (season, week),
         ).fetchall()
     }
@@ -114,6 +143,10 @@ def build(db, league_id: str, season: int, week: int) -> dict:
 
             snap = snapshot.get((rid, i)) or {}
             rows.append({
+                "seconds_left": (game or {}).get("seconds_left"),
+                "tier": snap.get("tier"),
+                "risk_reason": snap.get("risk_reason"),
+                "proj_pts": snap.get("proj_pts"),
                 "roster_id": rid,
                 "owner": team_label,
                 "avatar": owner.get("avatar"),
@@ -150,12 +183,15 @@ def build(db, league_id: str, season: int, week: int) -> dict:
     pending = [r for r in rows if r["state"] == PENDING]
     cleared = [
         r for r in rows
-        if r["state"] == SAFE and (r["goose_prob"] or 0) >= CLEARED_THRESHOLD
+        if r["state"] == SAFE and _tier_rank(r) >= goose.TIER_INDEX[goose.SHAKY]
     ]
 
-    danger.sort(key=lambda r: -(r["goose_prob"] or 0))
-    pending.sort(key=lambda r: -(r["goose_prob"] or 0))
-    cleared.sort(key=lambda r: -(r["goose_prob"] or 0))
+    # Everything sorts by time left, so the top of every group is whatever is
+    # closest to being settled. Goosed rows are already settled, so they order
+    # by owner instead -- an owner reading his own name wants it in one place.
+    danger.sort(key=_by_time_left)
+    pending.sort(key=_by_time_left)
+    cleared.sort(key=_by_time_left)
     goosed.sort(key=lambda r: (r["owner"], r["slot"]))
 
     drinkers = sorted(
@@ -163,6 +199,11 @@ def build(db, league_id: str, season: int, week: int) -> dict:
         key=lambda o: -o["goosed"],
     )
 
+    # game_state_by_team is keyed by TEAM, so every game appears twice in it.
+    # Counting those entries directly reported "8 of 15 final" for four finished
+    # games -- the count was teams and the total was games. Halve the counts, do
+    # not double the total: an odd entry (a team whose opponent is missing from
+    # the feed) should round down rather than invent a game.
     states = [g["state"] for g in games.values()]
     return {
         "week": week,
@@ -175,8 +216,8 @@ def build(db, league_id: str, season: int, week: int) -> dict:
         "per_owner": sorted(per_owner.values(), key=lambda o: (-o["goosed"], -o["danger"])),
         "total_goosed": len(goosed),
         "total_danger": len(danger),
-        "games_live": states.count(sleeper.LIVE),
-        "games_final": states.count(sleeper.FINAL),
+        "games_live": states.count(sleeper.LIVE) // 2,
+        "games_final": states.count(sleeper.FINAL) // 2,
         "games_total": len(games) // 2 if games else 0,
         "feed_ok": bool(games),
     }
