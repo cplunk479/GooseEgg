@@ -86,25 +86,27 @@ def build(starters, points, games, snapshot_probs=None):
 
 PLAYERS = {
     "pFINAL": ("Final Guy", "WR", "TB"),
-    "pLIVE": ("Live Guy", "RB", "KC"),
+    "pLIVE": ("Live Guy", "RB", "KC"),          # live, but only Q3 -- not "danger" yet
+    "pQ4": ("Fourth Quarter Guy", "RB", "MIN"),  # live and in the 4th -- this is danger
     "pPRE": ("Pregame Guy", "TE", "SF"),
     "pBYE": ("Bye Guy", "WR", "DET"),
     "pSCORED": ("Scored Guy", "WR", "TB"),
     "pRISKY": ("Risky Guy", "WR", "KC"),
 }
 GAMES = {
-    "TB": {"state": sleeper.FINAL, "clock": "FINAL", "opponent": "ATL"},
-    "KC": {"state": sleeper.LIVE, "clock": "Q3 8:42", "opponent": "DEN"},
-    "SF": {"state": sleeper.PRE, "clock": "not started", "opponent": "SEA"},
+    "TB": {"state": sleeper.FINAL, "clock": "FINAL", "quarter": None, "opponent": "ATL"},
+    "KC": {"state": sleeper.LIVE, "clock": "Q3 8:42", "quarter": 3, "opponent": "DEN"},
+    "MIN": {"state": sleeper.LIVE, "clock": "Q4 2:10", "quarter": 4, "opponent": "GB"},
+    "SF": {"state": sleeper.PRE, "clock": "not started", "quarter": None, "opponent": "SEA"},
     # DET deliberately absent -- on bye
 }
 
 
 def test_classification():
-    print("classification: final / live / pregame / bye / empty")
-    starters = {1: ["pFINAL", "pLIVE", "pPRE", "pBYE", "0", "pSCORED",
-                    "pRISKY", "pFINAL", "pLIVE", "pPRE", "pBYE"]}
-    points = {1: [0.0, 0.0, 0.0, 0.0, 0.0, 12.5, 8.0, -2.0, 0.0, 0.0, 0.0]}
+    print("classification: final / live-early / live-Q4 / pregame / bye / empty")
+    starters = {1: ["pFINAL", "pLIVE", "pQ4", "pPRE", "pBYE", "0",
+                    "pSCORED", "pRISKY", "pFINAL", "pLIVE", "pPRE"]}
+    points = {1: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 12.5, 8.0, -2.0, 0.0, 0.0]}
     db = build(starters, points, GAMES)
     d = watch.build(db, LEAGUE, SEASON, WEEK)
 
@@ -115,7 +117,10 @@ def test_classification():
     check("a zero in a FINAL game is goosed", "pFINAL" in by_state.get("goosed", []))
     check("a negative in a FINAL game is goosed",
           by_state.get("goosed", []).count("pFINAL") == 2, str(by_state.get("goosed")))
-    check("a zero in a LIVE game is danger", "pLIVE" in by_state.get("danger", []))
+    check("a zero live but still in Q3 is pending, not danger yet",
+          "pLIVE" in by_state.get("pending", []) and "pLIVE" not in by_state.get("danger", []),
+          str(by_state))
+    check("a zero live in the 4th quarter is danger", "pQ4" in by_state.get("danger", []))
     check("a zero before kickoff is pending", "pPRE" in by_state.get("pending", []))
     check("A BYE-WEEK ZERO IS PENDING, NOT GOOSED",
           "pBYE" in by_state.get("pending", []) and "pBYE" not in by_state.get("goosed", []),
@@ -123,6 +128,11 @@ def test_classification():
     check("an empty slot is goosed whatever the clock", None in by_state.get("goosed", []))
     check("points on the board is safe", "pSCORED" in by_state.get("safe", []))
     check("the goosed count matches the list", d["total_goosed"] == len(d["goosed"]))
+    check("a starter's photo is keyed off the real player_id",
+          any(r["player_id"] == "pQ4" and r["photo"] == "https://sleepercdn.com/content/nfl/players/thumb/pQ4.jpg"
+              for r in d["rows"]))
+    check("an empty slot has no photo",
+          all(r["photo"] is None for r in d["rows"] if r["player_id"] is None))
     db.close()
 
 
@@ -141,7 +151,7 @@ def test_cleared_only_flags_the_feared():
 def test_drinkers_and_totals():
     print("\nper-owner rollup")
     starters = {
-        1: ["pFINAL", "pFINAL", "pLIVE"] + ["pSCORED"] * 8,
+        1: ["pFINAL", "pFINAL", "pQ4"] + ["pSCORED"] * 8,
         2: ["pSCORED"] * 11,
     }
     points = {1: [0.0, 0.0, 0.0] + [9.0] * 8, 2: [9.0] * 11}
@@ -154,7 +164,7 @@ def test_drinkers_and_totals():
     d = watch.build(db, LEAGUE, SEASON, WEEK)
     check("only the owner with a final zero is drinking", len(d["drinkers"]) == 1, str(d["drinkers"]))
     check("they are down for two", d["drinkers"][0]["goosed"] == 2, str(d["drinkers"][0]))
-    check("their live zero counts as danger, not a chug", d["total_danger"] == 1, str(d["total_danger"]))
+    check("their 4th-quarter zero counts as danger, not a chug", d["total_danger"] == 1, str(d["total_danger"]))
     check("the clean owner is not listed as drinking",
           all(x["owner"] != "Team Two" for x in d["drinkers"]))
     db.close()
@@ -208,6 +218,9 @@ def test_game_state_parsing():
         check("a complete game reads final", states["ATL"]["state"] == sleeper.FINAL)
         check("an in-progress game reads live", states["KC"]["state"] == sleeper.LIVE)
         check("the live clock is human", states["KC"]["clock"] == "Q3 8:42", states["KC"]["clock"])
+        check("the live game exposes its raw quarter number", states["KC"]["quarter"] == 3, str(states["KC"]["quarter"]))
+        check("a final game's quarter is not read as 'currently playing'",
+              states["ATL"]["quarter"] is None, str(states["ATL"]["quarter"]))
         check("opponents are paired", states["TB"]["opponent"] == "ATL")
         check("scores follow the right side",
               states["TB"]["score"] == 23 and states["ATL"]["score"] == 20)

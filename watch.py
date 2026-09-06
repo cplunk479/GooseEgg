@@ -9,14 +9,19 @@ is drinking tonight" and "who is one bad quarter away from it".
 Four states per starter, and the distinction between them is the whole point:
 
     goosed   the player's game is FINAL and he finished on <= 0. Settled.
-    danger   his game is LIVE and he is on <= 0 right now. Still escapable.
-    pending  his game has not kicked off. A zero here means nothing yet.
+    danger   his game is in the 4th quarter (or overtime) and he is on <= 0
+             right now. Genuinely running out of snaps to fix it.
+    pending  his game has not kicked off, or is live but still in Q1-Q3. A
+             zero in the first three quarters is completely normal and not
+             worth a panic banner -- there is a full quarter of offense left.
     safe     he has points on the board.
 
 Conflating `pending` with `danger` would put every owner at maximum panic at
-9am Sunday, and conflating it with `goosed` would declare a bye-week player
-drunk on Thursday. So a team with no game in the feed is `pending`, never
-`final` -- see the warning in sleeper.game_state_by_team.
+9am Sunday (or at 1:05pm the moment kickoff happens), and conflating it with
+`goosed` would declare a bye-week player drunk on Thursday. So a team with no
+game in the feed is `pending`, never `final` -- see the warning in
+sleeper.game_state_by_team. The same reasoning is why a Q1 zero is `pending`
+too: it hasn't earned "danger" yet.
 
 This module reads. It never writes: nothing here settles a week, raises a chug
 or resolves a curse. Sunday's screen is a view of a week that settle_week
@@ -35,7 +40,12 @@ GOOSED, DANGER, PENDING, SAFE = "goosed", "danger", "pending", "safe"
 CLEARED_THRESHOLD = 0.10
 
 
-def _classify(points, player_id, game_state: str | None) -> str:
+# A live zero only counts as "danger" from the 4th quarter on -- see the
+# module docstring. Anything before that is just Sunday happening.
+DANGER_FROM_QUARTER = 4
+
+
+def _classify(points, player_id, game_state: str | None, quarter: int | None) -> str:
     if goose.is_empty_slot(player_id):
         return GOOSED                      # nothing was started; no game can save it
     if points is None:
@@ -48,7 +58,7 @@ def _classify(points, player_id, game_state: str | None) -> str:
         return SAFE
     if game_state == sleeper.FINAL:
         return GOOSED
-    if game_state == sleeper.LIVE:
+    if game_state == sleeper.LIVE and quarter is not None and quarter >= DANGER_FROM_QUARTER:
         return DANGER
     return PENDING
 
@@ -99,7 +109,7 @@ def build(db, league_id: str, season: int, week: int) -> dict:
             meta = players.get(pid) or {}
             nfl_team = (meta.get("team") or "").upper()
             game = games.get(nfl_team)
-            state = _classify(pts, pid, (game or {}).get("state"))
+            state = _classify(pts, pid, (game or {}).get("state"), (game or {}).get("quarter"))
             tally[state] += 1
 
             snap = snapshot.get((rid, i)) or {}
@@ -110,6 +120,11 @@ def build(db, league_id: str, season: int, week: int) -> dict:
                 "slot": snap.get("slot") or (slots[i] if i < len(slots) else f"S{i+1}"),
                 "player_id": pid,
                 "name": meta.get("full_name") or ("Empty slot" if pid is None else f"Player {pid}"),
+                # Undocumented but long-standing Sleeper CDN convention -- same
+                # /content/nfl/players/ path the Sleeper app itself uses for
+                # roster headshots. Missing/practice-squad players 404; the
+                # template hides a broken image rather than showing it.
+                "photo": f"https://sleepercdn.com/content/nfl/players/thumb/{pid}.jpg" if pid else None,
                 "position": meta.get("position"),
                 "nfl_team": nfl_team or None,
                 "opponent": (game or {}).get("opponent"),

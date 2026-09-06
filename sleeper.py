@@ -335,13 +335,21 @@ def game_state_by_team(season: int, week: int) -> dict:
             state = PRE
 
         clock = _clock(meta)
+        # Raw quarter number, kept alongside the formatted clock string so a
+        # caller can gate on "how far into the game" without re-parsing text.
+        # None pre-kickoff; Sleeper has been seen to keep counting past 4 in
+        # overtime rather than reset, so ">= 4" is the right test for "no time
+        # left to fix a zero", not "== 4".
+        quarter = meta.get("quarter_num") if meta.get("is_in_progress") else None
         start = g.get("start_time")
         start = int(start) // 1000 if start else None
         home_score = meta.get("home_score")
         away_score = meta.get("away_score")
 
-        out[home] = {"state": state, "clock": clock, "opponent": away, "home": True,
-                     "score": home_score, "opponent_score": away_score, "start_time": start}
-        out[away] = {"state": state, "clock": clock, "opponent": home, "home": False,
-                     "score": away_score, "opponent_score": home_score, "start_time": start}
+        out[home] = {"state": state, "clock": clock, "quarter": quarter, "opponent": away,
+                     "home": True, "score": home_score, "opponent_score": away_score,
+                     "start_time": start}
+        out[away] = {"state": state, "clock": clock, "quarter": quarter, "opponent": home,
+                     "home": False, "score": away_score, "opponent_score": home_score,
+                     "start_time": start}
     return out

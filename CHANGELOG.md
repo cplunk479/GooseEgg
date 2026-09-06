@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.4.0] — 2026-09-06
+
+Goose Watch tightened after the first real click-through on Render.
+
+### Changed
+- **"Danger" now means the 4th quarter, not just "live."** A live zero in
+  Q1-Q3 is `pending`, same bucket as a player who hasn't kicked off. There is
+  a full quarter-plus of offense left at that point; flagging it as danger
+  just trains people to ignore the danger section. `sleeper.game_state_by_team`
+  now also returns the raw `quarter` number per team so `watch._classify` can
+  gate on it directly instead of re-parsing the clock string.
+  `DANGER_FROM_QUARTER = 4` in `watch.py` if this ever needs tuning, and it
+  also covers overtime (Sleeper keeps incrementing past 4 rather than
+  resetting, so this is a `>=`, not `==`).
+- Every player row on Goose Watch (Goosed, Danger, Pending, Cleared) now
+  renders a small headshot next to the name, from Sleeper's CDN
+  (`sleepercdn.com/content/nfl/players/thumb/{player_id}.jpg` — the same
+  undocumented-but-stable path the Sleeper app itself uses). A player with no
+  photo on file 404s quietly; the `onerror` handler just hides the broken
+  image rather than showing a placeholder icon.
+
+### Fixed
+- Names showing as "Player 4046" instead of "Patrick Mahomes" on a fresh
+  deploy was not a code bug — `players_cache` is only populated by
+  `players_sync.sync()`, which only runs from the `/poll` route, which only
+  runs when something pings it on a schedule. A brand-new deploy with no
+  pinger set up yet has an empty cache. Hitting `/poll?secret=...` once by
+  hand fills it immediately; an UptimeRobot-style pinger (same as the FAAB
+  app) keeps it fresh going forward.
+
+### Still outstanding
+- The `/poll` pinger itself is not set up yet on the live Render deploy —
+  without it, `players_cache` never refreshes, weeks never auto-lock/settle,
+  and the Discord recap (once built) never fires. This is an operational step
+  on Render, not a code change.
+- Discord webhook still deferred, per Conner.
+
 ## [0.3.0] — 2026-09-06
 
 Goose Watch — the live Sunday board.
