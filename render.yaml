@@ -11,15 +11,17 @@
 # every sync in the FAAB app (2026-09-04 incident).
 databases:
   - name: goose-db
-    plan: starter  # NOT free -- Render's free Postgres expires after 30 days,
-                   # which is exactly what killed the FAAB database last season.
+    plan: 0.1c-256mb  # Render retired the old "starter" name (Sep 2026) -- this
+                       # is its direct successor: 0.1 CPU / 256MB RAM, same $7/mo tier.
+                       # NOT free -- Render's free Postgres expires after 30 days,
+                       # which is exactly what killed the FAAB database last season.
     databaseName: goose
     user: goose
 
 services:
   - type: web
     name: goose-platform
-    plan: starter
+    plan: 0.5c-512mb  # successor to the old "starter" web service plan
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --workers 2 --timeout 60 --access-logfile -
