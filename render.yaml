@@ -1,0 +1,40 @@
+# Blueprint for the GOOSE EGG Challenge app (Dynasty Dons).
+#
+# Deliberately a SEPARATE web service from faab-platform: that app is live
+# mid-season for a different league and nothing here may be able to break it.
+#
+# The database line below is a starting point only. The hosting decision
+# (own Postgres vs. a `goose` schema on the FAAB instance) is deferred --
+# see Dev/goose-egg-platform-design.md section 9. Whichever way it goes,
+# DATABASE_URL is set BY HAND in the Render dashboard and is never auto-bound
+# to a blueprint database: that binding silently overwrote manual edits on
+# every sync in the FAAB app (2026-09-04 incident).
+databases:
+  - name: goose-db
+    plan: starter  # NOT free -- Render's free Postgres expires after 30 days,
+                   # which is exactly what killed the FAAB database last season.
+    databaseName: goose
+    user: goose
+
+services:
+  - type: web
+    name: goose-platform
+    plan: starter
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --timeout 60 --access-logfile -
+    envVars:
+      - key: DATABASE_URL
+        sync: false  # set by hand in the dashboard, see note above
+      - key: GOOSE_LEAGUE_ID
+        sync: false
+      - key: GOOSE_SEASON
+        value: "2026"
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: POLL_SECRET
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: "3.12.7"

@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Week {{ week }} — Goose Egg{% endblock %}
+{% block body %}
+<style>
+  .row-wrap { border-bottom: 1px solid var(--border); }
+  .row-wrap.cursed { background: linear-gradient(160deg, #1D1109 0%, var(--bg) 72%); }
+  .row-wrap.blessed { background: linear-gradient(160deg, #191505 0%, var(--bg) 72%); }
+  .ribbon {
+    display: flex; align-items: center; gap: 6px; padding: 6px 14px 1px;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+    font-size: 9.5px; letter-spacing: 0.16em;
+  }
+  .row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
+  .row .nm {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 16px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row .sub { font-size: 10px; color: var(--text2); margin-top: 1px; }
+  .cell {
+    width: 74px; flex-shrink: 0; background: var(--surf2); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 2px; text-align: center;
+  }
+  .cell.hot { border-color: rgba(196,106,30,0.55); }
+  .cell .big { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; line-height: 1.05; }
+  .cell .sml { font-size: 9.5px; color: var(--text2); letter-spacing: 0.04em; }
+  .risk { width: 52px; flex-shrink: 0; text-align: center; }
+  .risk .big { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; }
+  .track { height: 3px; border-radius: 2px; background: var(--surf2); margin-top: 5px; overflow: hidden; }
+</style>
+
+<div class="status-bar">
+  <div>
+    <div class="label">MY CHUG ODDS</div>
+    <div class="val">{{ my_row.chug_odds | odds if my_row else '--' }}</div>
+    <div style="font-size: 10px; color: var(--text2); margin-top: 2px;">
+      {% if my_row and my_row.chug_odds %}{{ my_row.chug_odds | pct }} ·{% endif %}
+      proj {{ my_row.proj_total | pts if my_row else '--' }}
+    </div>
+  </div>
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <div style="text-align: center;">
+      <div class="token-wrap">
+        <div class="token {% if my_tokens %}token--curse{% else %}token--off{% endif %}"
+             style="display:flex;align-items:center;justify-content:center;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{% if my_tokens %}var(--ember){% else %}var(--text3){% endif %}" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/><path d="M8.6 9.9l2.4 1.8-1.5 2.2 3.1 1.9"/></svg>
+        </div>
+        {% if my_tokens %}<div class="token-count">{{ my_tokens }}</div>{% endif %}
+      </div>
+      <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_tokens %}var(--ember){% else %}var(--text3){% endif %};">CURSES</div>
+    </div>
+    <div style="text-align: center;">
+      <div class="token {% if my_blessed %}token--bless{% else %}token--off{% endif %}"
+           style="display:flex;align-items:center;justify-content:center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{% if my_blessed %}var(--gold){% else %}var(--text3){% endif %}" stroke-width="1.7" stroke-linejoin="round"><path d="M12 2.8l7 3v6.2c0 4.4-3 7.7-7 9.2-4-1.5-7-4.8-7-9.2V5.8l7-3Z"/></svg>
+      </div>
+      <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_blessed %}var(--gold){% else %}var(--text3){% endif %};">{% if my_blessed %}BLESSED{% else %}NO BLESSING{% endif %}</div>
+    </div>
+  </div>
+</div>
+
+<div style="display: flex; align-items: flex-end; gap: 8px; padding: 13px 14px 8px; border-bottom: 1px solid var(--border);">
+  <div style="flex: 1; min-width: 0;">
+    <div class="section-head">Week {{ week }} Board</div>
+    <div style="font-size: 10.5px; color: var(--text2); margin-top: 2px;">
+      <span class="pill pill-{{ wk.status }}">{{ wk.status }}</span>
+      {% if sealed %}<span class="pill pill-sealed" style="margin-left: 4px;">targets sealed</span>{% endif %}
+    </div>
+  </div>
+  <form method="GET" style="text-align: right;">
+    <div class="overline" style="margin-bottom: 3px;">WEEK</div>
+    <select name="week" onchange="this.form.submit()"
+      style="background: var(--surf2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 15px; padding: 3px 8px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;">
+      {% for w in weeks %}<option value="{{ w }}" {% if w == week %}selected{% endif %}>{{ w }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+{% for r in rows %}
+  {% set cursed = r.curses | selectattr('status', 'equalto', 'cast') | list | length > 0 %}
+  <div class="row-wrap {% if cursed %}cursed{% elif r.blessed %}blessed{% endif %}">
+    {% if cursed %}
+      {% for c in r.curses if c.status == 'cast' %}
+        <div class="ribbon" style="color: var(--ember);">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ember)" stroke-width="1.8"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+          GOOTHULU&rsquo;S CURSE
+          {%- if c.sealed %} &middot; CASTER SEALED
+          {%- else %} &middot; {{ c.caster | upper }}{% endif %}
+          {% if c.mine and wk.status == 'open' %}
+            <form method="POST" action="{{ url_for('cancel_curse', curse_id=c.id) }}" style="margin-left: auto;">
+              <button class="btn-sm" type="submit">Withdraw</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% elif r.blessed %}
+      <div class="ribbon" style="color: var(--gold);">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2.8l7 3v6.2c0 4.4-3 7.7-7 9.2-4-1.5-7-4.8-7-9.2V5.8l7-3Z"/></svg>
+        GOOSIAH&rsquo;S BLESSING &middot; EXPIRES AFTER THIS WEEK
+      </div>
+    {% endif %}
+
+    <div class="row">
+      {% if r.avatar %}
+        <img class="logo" src="https://sleepercdn.com/avatars/thumbs/{{ r.avatar }}" alt="" onerror="this.style.visibility='hidden'">
+      {% else %}
+        <div class="initials">{{ (r.team or '?')[:2] | upper }}</div>
+      {% endif %}
+      <div style="flex: 1; min-width: 0;">
+        <div class="nm" {% if r.is_me %}style="color: var(--gold);"{% endif %}>{{ r.team }}</div>
+        <div class="sub">
+          {% if r.goose_count %}{{ r.goose_count }} goose{{ '' if r.goose_count == 1 else 's' }}
+          {%- elif r.actual_total is not none %}clean week
+          {%- elif r.proj_total %}proj {{ r.proj_total | pts }}
+          {%- else %}not locked yet{% endif %}
+        </div>
+      </div>
+      <div class="cell {% if cursed %}hot{% endif %}">
+        <div class="big" style="color: {% if cursed %}var(--ember){% else %}var(--gold){% endif %};">{{ r.chug_odds | odds }}</div>
+        <div class="sml">CHUG</div>
+      </div>
+      <div class="risk">
+        {% set p = (r.chug_odds or 0) | float %}
+        {% set col = 'var(--flame)' if p >= 0.40 else ('var(--ember)' if p >= 0.25 else ('var(--gold)' if p >= 0.18 else 'var(--jade)')) %}
+        <div class="big" style="color: {{ col }};">{{ r.chug_odds | pct }}</div>
+        <div class="track"><div style="height: 3px; width: {{ (p * 200) | round | int }}%; background: {{ col }};"></div></div>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+
+{% if wk.status == 'open' %}
+<div style="padding: 15px 14px 20px; border-top: 6px solid var(--surf);">
+  <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 8px;">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ember)" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+    <div class="bar" style="font-weight: 800; font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase;">Cast a curse</div>
+    <div class="bar" style="margin-left: auto; font-weight: 700; font-size: 12px; color: var(--ember); letter-spacing: 0.06em;">{{ my_tokens }} HELD</div>
+  </div>
+  {% if my_tokens %}
+    <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5; margin-bottom: 12px;">
+      Miss the locked projection and they chug. Beat it and they earn Goosiah&rsquo;s blessing &mdash; safe for one week.
+      {% if sealed %} Targets stay sealed until Sunday kickoff.{% endif %}
+    </div>
+    <form method="POST" action="{{ url_for('cast_curse') }}" style="display: flex; gap: 8px;">
+      <input type="hidden" name="week" value="{{ week }}">
+      <select class="select" name="target" required style="flex: 1;">
+        <option value="">Choose an owner…</option>
+        {% for t in targets %}<option value="{{ t.roster_id }}">{{ t.team }}</option>{% endfor %}
+      </select>
+      <button class="btn-primary btn-curse" type="submit" style="width: auto; padding: 13px 22px;">Cast</button>
+    </form>
+  {% else %}
+    <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5;">
+      No tokens. You earn one for every chug you actually perform &mdash; owing one earns nothing.
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}Admin — Goose Egg{% endblock %}
+{% block body %}
+<style>
+  .tabs { display: flex; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .tabs a {
+    flex: 1; text-align: center; padding: 7px 0; border-radius: 8px;
+    border: 1px solid var(--border); color: var(--text2);
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 12px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .tabs a.sel { border-color: var(--gold); background: rgba(232,185,35,0.11); color: var(--gold); }
+  .arow { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .anm { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; }
+  .asub { font-size: 10px; color: var(--text2); margin-top: 1px; }
+  .rule { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  .rule input[type=number] {
+    width: 62px; background: var(--surf2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+    font-size: 16px; padding: 5px 8px; text-align: center;
+  }
+  .sw { width: 44px; height: 26px; flex-shrink: 0; }
+  .mini { background: var(--surf2); border: 1px solid var(--border); border-radius: 8px;
+          color: var(--text); font-size: 13px; padding: 8px 10px; }
+</style>
+
+<div style="padding: 14px 14px 0;">
+  <div class="section-head">Admin</div>
+  <div class="caption" style="margin-top: 2px;">Active week {{ active }} &middot; <span class="pill pill-{{ wk.status }}">{{ wk.status }}</span></div>
+</div>
+
+<div class="tabs">
+  <a class="{% if tab == 'chugs' %}sel{% endif %}" href="{{ url_for('admin', tab='chugs') }}">Chugs</a>
+  <a class="{% if tab == 'week' %}sel{% endif %}" href="{{ url_for('admin', tab='week') }}">Week</a>
+  <a class="{% if tab == 'curses' %}sel{% endif %}" href="{{ url_for('admin', tab='curses') }}">Curses</a>
+  <a class="{% if tab == 'rules' %}sel{% endif %}" href="{{ url_for('admin', tab='rules') }}">Rules</a>
+</div>
+
+{% if tab == 'chugs' %}
+  {% set owed = chugs | selectattr('status', 'equalto', 'owed') | list %}
+  <div style="padding: 12px 14px 6px;">
+    <div class="overline">Owed &middot; {{ owed | length }}</div>
+  </div>
+  {% if owed %}
+    {% for c in owed %}
+    <div class="arow">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--blood)" style="flex-shrink: 0;"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
+      <div style="flex: 1; min-width: 0;">
+        <div class="anm">{{ label(owners.get(c.roster_id)) }}</div>
+        <div class="asub">Week {{ c.week }} &middot; {{ 'goose' if c.reason == 'goose' else 'curse' }}{% if c.rolled_from_week %} &middot; rolled from {{ c.rolled_from_week }}{% endif %}</div>
+      </div>
+      <form method="POST" action="{{ url_for('admin_chug', chug_id=c.id, action='confirm') }}">
+        <button class="btn-sm go" type="submit">Chugged</button>
+      </form>
+      <form method="POST" action="{{ url_for('admin_chug', chug_id=c.id, action='safe-pour') }}">
+        <button class="btn-sm" type="submit">Safe</button>
+      </form>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="caption" style="padding: 4px 14px 14px;">Everyone is square.</div>
+  {% endif %}
+
+  {% set paid = chugs | selectattr('status', 'equalto', 'paid') | list %}
+  <div style="padding: 14px 14px 6px; border-top: 6px solid var(--surf);">
+    <div class="overline">Confirmed &middot; {{ paid | length }}</div>
+    <div class="caption" style="margin-top: 4px;">Confirming a chug is what mints a curse token. Owing one earns nothing.</div>
+  </div>
+  {% for c in paid[:25] %}
+  <div class="arow">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z" fill="var(--jade)"/><path d="M8.3 13l2.6 2.6L16 10" stroke="#0E0B07" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div style="flex: 1; min-width: 0;">
+      <div class="anm">{{ label(owners.get(c.roster_id)) }}</div>
+      <div class="asub">Week {{ c.week }}{% if c.safe_pour %} &middot; safe pour{% endif %}</div>
+    </div>
+    <form method="POST" action="{{ url_for('admin_chug', chug_id=c.id, action='undo') }}">
+      <button class="btn-sm warn" type="submit">Undo</button>
+    </form>
+  </div>
+  {% endfor %}
+
+{% elif tab == 'week' %}
+  <div style="padding: 14px;">
+    <div class="caption" style="line-height: 1.55;">
+      A week is closed to curses until you open it. Locking snapshots every lineup and freezes each
+      curse against its target&rsquo;s projection &mdash; after that the number cannot move.
+      {% if lock_epoch %}<br><br>Sunday lock at epoch {{ lock_epoch }}{% if now >= lock_epoch %} &mdash; <span style="color: var(--flame);">passed</span>{% endif %}.{% endif %}
+      {% if end_epoch %}<br>Week ends at epoch {{ end_epoch }}{% if now >= end_epoch %} &mdash; <span style="color: var(--flame);">passed</span>{% endif %}.{% endif %}
+    </div>
+  </div>
+  <form method="POST" action="{{ url_for('admin_week') }}" style="padding: 0 14px 14px; display: flex; gap: 8px; align-items: center;">
+    <input class="mini" type="number" name="week" value="{{ active }}" min="1" max="18" style="width: 74px;">
+    <button class="btn-sm" name="action" value="set-active" type="submit">Set active</button>
+    <button class="btn-sm go" name="action" value="open" type="submit">Open</button>
+    <button class="btn-sm" name="action" value="lock" type="submit">Lock</button>
+    <button class="btn-sm warn" name="action" value="settle" type="submit">Settle</button>
+  </form>
+  {% for w in weeks %}
+  <div class="arow">
+    <div style="flex: 1;">
+      <div class="anm">Week {{ w.week }}</div>
+      <div class="asub">
+        {%- if w.settled_at %}settled{% elif w.locked_at %}locked{% elif w.opened_at %}open{% else %}not opened{% endif -%}
+      </div>
+    </div>
+    <div class="pill pill-{{ w.status }}">{{ w.status }}</div>
+  </div>
+  {% endfor %}
+
+{% elif tab == 'curses' %}
+  <div style="padding: 14px;">
+    <div class="caption" style="line-height: 1.55;">
+      Manual overrides. A curse added here spends no token; voiding one returns the token if there was one.
+    </div>
+  </div>
+  <form method="POST" action="{{ url_for('admin_curse') }}" style="padding: 0 14px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+    <input type="hidden" name="week" value="{{ active }}">
+    <select class="mini" name="caster">{% for rid, o in owners.items() %}<option value="{{ rid }}">{{ label(o) }}</option>{% endfor %}</select>
+    <span class="caption">curses</span>
+    <select class="mini" name="target">{% for rid, o in owners.items() %}<option value="{{ rid }}">{{ label(o) }}</option>{% endfor %}</select>
+    <button class="btn-sm" name="action" value="grant-curse" type="submit">Add</button>
+  </form>
+  <form method="POST" action="{{ url_for('admin_curse') }}" style="padding: 0 14px 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+    <input type="hidden" name="week" value="{{ active }}">
+    <select class="mini" name="roster_id">{% for rid, o in owners.items() %}<option value="{{ rid }}">{{ label(o) }}</option>{% endfor %}</select>
+    <button class="btn-sm" name="action" value="grant-token" type="submit">Give token</button>
+    <button class="btn-sm" name="action" value="grant-blessing" type="submit">Give blessing</button>
+  </form>
+
+  <div style="padding: 12px 14px 6px; border-top: 6px solid var(--surf);"><div class="overline">Curses</div></div>
+  {% for c in curses %}
+  <div class="arow">
+    <div style="flex: 1; min-width: 0;">
+      <div class="anm">{{ label(owners.get(c.caster_roster_id)) }} &rarr; {{ label(owners.get(c.target_roster_id)) }}</div>
+      <div class="asub">Week {{ c.week }}{% if c.threshold_proj %} &middot; needed {{ c.threshold_proj | pts }}{% endif %}{% if c.created_by_admin %} &middot; admin{% endif %}</div>
+    </div>
+    <div class="pill {% if c.status == 'landed' %}pill-goosed{% elif c.status == 'survived' %}pill-clean{% elif c.status == 'blocked' %}pill-blessed{% else %}pill-cursed{% endif %}">{{ c.status }}</div>
+    {% if c.status == 'cast' %}
+    <form method="POST" action="{{ url_for('admin_curse') }}">
+      <input type="hidden" name="curse_id" value="{{ c.id }}">
+      <button class="btn-sm warn" name="action" value="void-curse" type="submit">Void</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div style="padding: 14px 14px 6px; border-top: 6px solid var(--surf);"><div class="overline">Blessings</div></div>
+  {% for b in blessings %}
+  <div class="arow">
+    <div style="flex: 1; min-width: 0;">
+      <div class="anm">{{ label(owners.get(b.roster_id)) }}</div>
+      <div class="asub">Earned week {{ b.earned_week }} &middot; covers week {{ b.expires_after }}</div>
+    </div>
+    <div class="pill {% if b.status == 'active' %}pill-blessed{% else %}pill-sealed{% endif %}">{{ b.status }}</div>
+    {% if b.status == 'active' %}
+    <form method="POST" action="{{ url_for('admin_curse') }}">
+      <input type="hidden" name="blessing_id" value="{{ b.id }}">
+      <button class="btn-sm warn" name="action" value="revoke-blessing" type="submit">Revoke</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+{% elif tab == 'rules' %}
+  <div style="padding: 14px;">
+    <div class="caption" style="line-height: 1.55;">
+      Every rule of the curse economy lives here, not in the code. Changes take effect immediately &mdash;
+      no redeploy. If curses are too scarce, the weekly stipend is the dial to turn: at the league&rsquo;s real
+      goose rate only about a quarter of owners mint a token in a given week.
+    </div>
+  </div>
+  <form method="POST" action="{{ url_for('admin_rules') }}">
+    {% for r in rules %}
+    <div class="rule">
+      <div style="flex: 1; min-width: 0;">
+        <div class="anm">{{ r.label }}</div>
+        <div class="asub">{{ r.key }} &middot; default {{ r.default }}</div>
+      </div>
+      {% if r.kind == 'bool' %}
+        <input type="checkbox" name="{{ r.key }}" class="sw" {% if r.value %}checked{% endif %}
+               style="accent-color: var(--gold);">
+      {% else %}
+        <input type="number" name="{{ r.key }}" value="{{ r.value }}" min="0" max="10">
+      {% endif %}
+    </div>
+    {% endfor %}
+    <div style="padding: 16px 14px 24px;">
+      <button class="btn-primary" type="submit">Save rules</button>
+    </div>
+  </form>
+{% endif %}
+{% endblock %}
