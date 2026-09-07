@@ -58,7 +58,10 @@ def get_db():
         try:
             demomod.install(request._goose_db)
         except Exception:
-            sleeper.set_demo(None)      # a broken snapshot must never take the app down
+            # A broken snapshot must never take the app down -- and must not
+            # leave an aborted transaction behind for the route to trip over.
+            request._goose_db.rollback()
+            sleeper.set_demo(None)
     return request._goose_db
 
 
@@ -120,22 +123,46 @@ def label(owner_row) -> str:
     return owner_row["team_name"] or owner_row["owner_name"] or f"Roster {owner_row['roster_id']}"
 
 
+def _app_version() -> str:
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "VERSION")) as fh:
+            return fh.read().strip()
+    except OSError:
+        return "?"
+
+
 @app.context_processor
 def inject_globals():
+    """
+    The page chrome: who is logged in, the admin badge count, the version.
+
+    Every lookup here is wrapped, because this runs during template rendering
+    on EVERY page. An exception raised here cannot be handled by the route --
+    the route has already returned -- so it becomes a 500 on a page that had
+    otherwise rendered fine. Chrome is not worth a page: a badge that silently
+    reads zero is a far better failure than a screen nobody can open.
+    """
     db = getattr(request, "_goose_db", None)
-    owner = current_owner(db) if db is not None else None
+    try:
+        owner = current_owner(db) if db is not None else None
+    except Exception:
+        owner = None
     pending = 0
     if db is not None and owner is not None and owner["is_admin"]:
-        pending = db.execute(
-            "SELECT COUNT(*) AS n FROM chugs WHERE season = %s AND status = 'owed'", (SEASON,)
-        ).fetchone()["n"]
+        try:
+            pending = db.execute(
+                "SELECT COUNT(*) AS n FROM chugs WHERE season = %s AND status = 'owed'",
+                (SEASON,),
+            ).fetchone()["n"]
+        except Exception:
+            pending = 0
     return {
         "me": owner,
         "season": SEASON,
         "pending_chugs": pending,
         "demo_mode": bool(sleeper.demo_payload()),
         "tier_order": list(goose.TIERS),
-        "app_version": open(os.path.join(os.path.dirname(__file__), "VERSION")).read().strip(),
+        "app_version": _app_version(),
     }
 
 
@@ -204,6 +231,11 @@ def snapshot_or_preview(db, week: int, wk_row) -> tuple[dict, bool]:
     try:
         projected = engine.project_week(db, LEAGUE_ID, SEASON, week)
     except Exception:
+        # Same reasoning as the Watch route: project_week touches players_cache,
+        # so this may be a database error, and leaving the transaction aborted
+        # would take down the render that follows. A preview is a nicety; the
+        # board without one is still a board.
+        db.rollback()
         return {}, True
 
     out = {}
@@ -404,6 +436,7 @@ def my_geese():
         try:
             bucket = engine.project_week(db, LEAGUE_ID, SEASON, week)["rosters"].get(rid)
         except Exception:
+            db.rollback()
             bucket = None
         if bucket:
             lineup = bucket["slots"]
@@ -481,10 +514,24 @@ def goose_watch():
             problem = ("Sleeper's game feed came back empty, so nothing here knows "
                        "which games have finished. Scores below may be stale.")
     except Exception as exc:
-        problem = (f"Could not reach Sleeper ({type(exc).__name__}). This screen reads "
-                   f"live scores on every load, so there is nothing to show until it "
-                   f"is back. Nothing is lost — the week is graded from final scores "
-                   f"when it settles.")
+        # ROLL BACK BEFORE RENDERING. watch_mod.build reads the database as well
+        # as Sleeper, so the exception this catches may have come from Postgres
+        # -- and a failed statement puts the whole connection into "current
+        # transaction is aborted, commands ignored until end of transaction
+        # block". Every later query on it then fails too, including the pending
+        # -chug count in inject_globals, which runs while this very template
+        # renders. That turned a handled error into a 500 on the live deploy
+        # (v0.5.0 shipped its schema migration without running it, so this
+        # screen's SELECT hit a column that did not exist yet).
+        #
+        # SQLite has no aborted-transaction state at all, which is why the whole
+        # local suite renders this page happily against a v0.4 schema and proves
+        # nothing. Rolling back here is what makes the fail-soft actually soft.
+        db.rollback()
+        problem = (f"Could not load the live board ({type(exc).__name__}). This screen "
+                   f"reads live scores on every load, so there is nothing to show until "
+                   f"that is back. Nothing is lost — the week is graded from final "
+                   f"scores when it settles.")
 
     return render_template("watch.html", week=week, data=data, problem=problem,
                            me_roster=me["roster_id"])
@@ -849,6 +896,11 @@ def poll():
         if n:
             done.append(f"players:{n}")
     except Exception as exc:
+        # Every job in this route is individually guarded, and the rollback is
+        # part of the guard: without it a failed sync aborts the transaction and
+        # takes the lock and settle jobs below down with it, which is the exact
+        # opposite of individually guarded.
+        db.rollback()
         done.append(f"players:failed({type(exc).__name__})")
 
     week = active_week(db)

@@ -12,3 +12,5 @@ echo
 python tests/test_templates.py
 echo
 python tests/test_demo.py
+echo
+python tests/test_resilience.py

@@ -23,7 +23,23 @@ services:
     name: goose-platform
     plan: 0.5c-512mb  # successor to the old "starter" web service plan
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    # db_init.py runs on EVERY deploy, and that is deliberate.
+    #
+    # v0.5.0 shipped additive schema migrations and this line did not run them,
+    # so the deploy went green against a database that was still on v0.4 and
+    # Goose Watch 500'd on a column that did not exist. A migration that has to
+    # be remembered is a migration that will be forgotten.
+    #
+    # This is only safe because db_init.py is idempotent by construction --
+    # CREATE TABLE IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, and settings written
+    # only when the key is missing, so a re-run never stomps a rule the
+    # commissioner has tuned. Verified against Postgres 16: applies cleanly,
+    # re-runs as a no-op. Keep it that way; never put a DROP or a type change in
+    # db_init.MIGRATIONS.
+    #
+    # It runs in the BUILD, not the start command: a failure here fails the
+    # deploy loudly instead of crash-looping two gunicorn workers quietly.
+    buildCommand: pip install -r requirements.txt && python db_init.py
     startCommand: gunicorn app:app --workers 2 --timeout 60 --access-logfile -
     envVars:
       - key: DATABASE_URL

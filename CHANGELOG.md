@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.5.1] — 2026-09-06
+
+Hotfix. v0.5.0 deployed green and Goose Watch returned a 500.
+
+### What happened
+v0.5.0 added columns (`lineup_slots.tier` and friends) and `render.yaml`'s
+build command was only `pip install -r requirements.txt` — so Render deployed
+the new code against a database still on the v0.4 schema. Goose Watch is the
+one screen that names those columns in a SELECT, so it was the one that broke.
+
+The 500 itself came from a second, worse bug. The route CAUGHT the database
+error and set its "feed problem" banner, exactly as designed — but left the
+connection in Postgres's aborted-transaction state, where every later statement
+returns `current transaction is aborted, commands ignored until end of
+transaction block`. `inject_globals` then ran that state's next query while
+rendering the handled version of the page, and by then the route had returned
+and could no longer catch anything. A correctly handled error became a 500.
+
+**Every local suite passed, and structurally could not have caught it: SQLite
+has no aborted-transaction state.** This is the FAAB lesson again in a new
+costume — a mocked test proves the logic and never the environment.
+
+### Fixed
+- `db.rollback()` in every handler that catches around a call which touches the
+  database: the Goose Watch route, both `project_week` previews, the demo
+  install in `get_db`, and `/poll`'s player sync (where the missing rollback
+  also meant a failed sync silently took the lock and settle jobs down with
+  it — the opposite of the "individually guarded" the docstring claimed).
+- `inject_globals` now swallows its own failures. It runs during template
+  rendering, after the route has returned, so anything it raises is past the
+  last place that could catch it. A badge that reads zero beats a page nobody
+  can open.
+
+### Changed
+- **`render.yaml` now runs `python db_init.py` on every deploy.** A migration
+  that has to be remembered is a migration that will be forgotten. Safe because
+  `db_init.py` is idempotent by construction, and now verified so against a
+  real Postgres 16: `TABLES` + `MIGRATIONS` apply cleanly, re-run as a no-op,
+  and never touch a commissioner setting that already exists. It runs in the
+  BUILD so a failure fails the deploy loudly rather than crash-looping gunicorn.
+- Goose Watch's failure copy no longer blames Sleeper specifically — the error
+  it catches may equally be the database, and it said "Could not reach Sleeper"
+  while the real problem was a missing column.
+
+### Added
+- `tests/test_resilience.py`. Models Postgres transaction semantics on top of
+  SQLite (`AbortingDB`: once a statement raises, everything raises until a
+  rollback) and replays the exact production failure — v0.5 code against a
+  v0.4 database. With both fixes reverted it reproduces the live symptom
+  precisely: Goose Watch 500, every other screen fine. It also asserts that
+  `db_init.MIGRATIONS` stays additive, which matters much more now that the
+  list runs unattended on every deploy.
+
+### If you are deploying this by hand
+Run `python db_init.py`. It is additive and safe to re-run.
+
 ## [0.5.0] — 2026-09-06
 
 The chug-odds price is gone. Risk is a tier now, the board is visible before

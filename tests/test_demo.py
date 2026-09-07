@@ -195,11 +195,20 @@ def fake_get_json(url: str, timeout: int = 20):
     raise AssertionError(f"stub has no route for {url}")
 
 
-def build_db() -> FakeDB:
-    db = FakeDB()
+def build_db(db=None, migrations=None) -> FakeDB:
+    """
+    Schema, settings, owners and players.
+
+    `db` lets another suite hand in its own connection wrapper (test_resilience
+    passes one that models Postgres transaction semantics), and `migrations`
+    lets it build a PREVIOUS schema by passing an empty list -- which is how the
+    stale-database regression is reproduced without a real Postgres.
+    """
+    db = db if db is not None else FakeDB()
+    migrations = db_init.MIGRATIONS if migrations is None else migrations
     for stmt in db_init.TABLES:
         db.execute(to_sqlite(stmt))
-    for stmt in db_init.MIGRATIONS:
+    for stmt in migrations:
         try:
             db.execute(to_sqlite(stmt.replace(" IF NOT EXISTS", "")))
         except sqlite3.OperationalError as exc:
