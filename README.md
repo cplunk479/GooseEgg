@@ -17,7 +17,7 @@ nothing here may be able to break it.
 
 ## Status
 
-Live on Render. Login, Board, Goose Watch, My Geese, Standings and Admin are
+Live on Render. Login, Goose Watch, Curse, My Geese, Standings and Admin are
 built; the week lifecycle (open → lock → unlock → settle) works and is tested
 end to end.
 
@@ -68,11 +68,22 @@ separating, move them **in both that file and `goose.py`**.
 | `set_pins.py` | Sets PINs and grants admin. The only thing that makes someone an admin. |
 | `tests/` | `test_goose.py` (tiers + calibration backtest), `test_week_engine.py` (full week, unlock, reset), `test_watch.py`, `test_templates.py`, `test_demo.py` (end-to-end over a stubbed Sleeper), `test_resilience.py` (what the app does when the database says no). Run `./run_tests.sh`. |
 
+## The Goose Crown
+
+The drunkest owner wears it. `crown_key()` in `app.py` is the single
+definition of that order (chugs, then gooses, then curses landed):
+Standings sorts its whole table with it and `crown_leader()` takes the top
+of the same order for the Curse tab's banner, so the two screens cannot
+disagree. It stays vacant until somebody has actually chugged, and says so
+when two owners are level. Second and third place wear the same honour at
+lower intensity -- row wash, rank colour and mark all step down together.
+
 ## Themes
 
 Five owner-selectable colour themes — Goothulu (the original), Goosiah (the
 one light theme), Goosifer, Maverick and Duck Blind. Each owner picks their
-own from a card at the bottom of My Geese (`POST /me/theme`); it changes only
+own from the swatch in the top ribbon, on any screen (`POST /me/theme`,
+which returns to the screen it was set from); it changes only
 what that owner sees, stored in `owners.theme`. `base.html` builds one
 `:root[data-theme="..."]` CSS block per theme straight from `themes.py`, so
 the colour data and the stylesheet can never drift apart. A row missing the

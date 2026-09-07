@@ -79,6 +79,7 @@
       background: var(--bg); border-bottom: 1px solid var(--border);
       padding: 18px 20px 14px;
       display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+      position: relative; z-index: 1100;
     }
     .brand-sub {
       font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
@@ -299,6 +300,122 @@
     .tok-stack { display: flex; align-items: center; gap: -4px; }
     .tok-stack .tok + .tok { margin-left: -7px; }
 
+    /* ------------------------------------------------------------------
+       Theme menu. A <details> disclosure rather than a dialog: it opens with
+       no JS, and the panel is absolutely positioned so opening it never
+       reflows the page under the finger that just tapped it. It lives in the
+       ribbon because a theme is not a My Geese setting -- it applies to every
+       screen, so it belongs on every screen.
+       ------------------------------------------------------------------ */
+    .theme-menu { position: relative; margin-left: 9px; }
+    .theme-menu > summary {
+      list-style: none; cursor: pointer;
+      width: 27px; height: 27px; border-radius: 50%;
+      background: var(--surf2); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .theme-menu > summary::-webkit-details-marker { display: none; }
+    .theme-menu[open] > summary { border-color: var(--gold); }
+    .theme-dot {
+      width: 15px; height: 15px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--gold) 0 34%, var(--ember) 34% 67%, var(--flame) 67% 100%);
+    }
+    .theme-panel {
+      position: absolute; top: 34px; right: 0; width: 210px; z-index: 1200;
+      background: var(--surf); border: 1px solid var(--border); border-radius: 12px;
+      padding: 9px; box-shadow: 0 14px 34px rgba(0,0,0,0.45);
+    }
+    .theme-panel-head {
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 9.5px;
+      letter-spacing: 0.16em; color: var(--text2); text-transform: uppercase;
+      padding: 1px 3px 7px;
+    }
+    .theme-opt {
+      display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+      border: 1px solid var(--border); border-radius: 9px;
+      padding: 7px 9px; margin-bottom: 5px; font: inherit;
+    }
+    .theme-swatch { display: flex; gap: 3px; flex-shrink: 0; }
+    .theme-swatch i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+    .theme-name {
+      flex: 1; font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+      font-size: 12.5px; letter-spacing: 0.02em;
+    }
+    .theme-tick { font-size: 12px; font-weight: 700; }
+    .theme-note { font-size: 9.5px; color: var(--text3); padding: 2px 3px 1px; line-height: 1.4; }
+
+    /* The Curse tab wears Goothulu rather than an icon -- he is the thing the
+       tab is for, and a face reads faster than three lines ever did. */
+    .tab-tok {
+      width: 18px; height: 18px; border-radius: 50%; object-fit: cover;
+      opacity: 0.55; filter: grayscale(0.7);
+    }
+    .tab-bar a.active .tab-tok {
+      opacity: 1; filter: none;
+      box-shadow: 0 0 9px color-mix(in srgb, var(--ember) 70%, transparent);
+    }
+
+    /* ------------------------------------------------------------------
+       The Goose Crown. Shared by Standings (the full banner) and the Curse
+       tab (the strip), because two screens showing the same honour in two
+       different shapes is how an app stops feeling like one app.
+       ------------------------------------------------------------------ */
+    .crown-emblem { position: relative; flex-shrink: 0; }
+    .crown-emblem > .crown-face {
+      border-radius: 50%; object-fit: cover; display: block;
+      border: 2px solid var(--gold);
+      box-shadow: 0 0 18px color-mix(in srgb, var(--gold) 45%, transparent);
+      animation: crownGlow 3s ease-in-out infinite;
+    }
+    .crown-emblem > .crown-icon {
+      position: absolute; top: -11px; left: 50%; transform: translateX(-50%) rotate(-7deg);
+      filter: drop-shadow(0 0 6px color-mix(in srgb, var(--halo) 75%, transparent));
+    }
+    .crown-emblem.sm > .crown-icon { top: -8px; }
+    @keyframes crownGlow {
+      0%, 100% { box-shadow: 0 0 14px color-mix(in srgb, var(--gold) 35%, transparent); }
+      50%      { box-shadow: 0 0 30px color-mix(in srgb, var(--halo) 80%, transparent); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .crown-emblem > .crown-face { animation: none; }
+    }
+    .crown-banner {
+      position: relative; overflow: hidden;
+      margin: 14px; padding: 16px 16px 15px; border-radius: 14px;
+      border: 1px solid color-mix(in srgb, var(--gold) 48%, transparent);
+      background:
+        radial-gradient(120% 140% at 12% 0%, color-mix(in srgb, var(--gold) 22%, transparent) 0%, transparent 62%),
+        linear-gradient(160deg, color-mix(in srgb, var(--ember) 15%, var(--surf)) 0%, var(--bg) 78%);
+      display: flex; align-items: center; gap: 15px;
+    }
+    /* Goothulu's tentacles, abstracted: three arcs bleeding off the right
+       edge behind the numerals. Drawn in CSS so it costs no request and
+       recolours itself with the theme. */
+    .crown-banner::after {
+      content: ""; position: absolute; right: -46px; top: -34px;
+      width: 168px; height: 168px; pointer-events: none; opacity: 0.5;
+      background:
+        radial-gradient(circle at 50% 50%, transparent 39%, color-mix(in srgb, var(--ember) 42%, transparent) 40% 43%, transparent 44%),
+        radial-gradient(circle at 50% 50%, transparent 55%, color-mix(in srgb, var(--ember) 30%, transparent) 56% 58%, transparent 59%),
+        radial-gradient(circle at 50% 50%, transparent 71%, color-mix(in srgb, var(--gold) 22%, transparent) 72% 74%, transparent 75%);
+    }
+    .crown-banner > * { position: relative; z-index: 1; }
+    .crown-label {
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 10px;
+      letter-spacing: 0.2em; color: var(--gold);
+    }
+    .crown-team {
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 23px;
+      margin-top: 3px; line-height: 1.05;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .crown-strip {
+      margin: 12px 14px; padding: 11px 13px; border-radius: 12px;
+      border: 1px solid color-mix(in srgb, var(--gold) 42%, transparent);
+      background: linear-gradient(150deg, color-mix(in srgb, var(--gold) 15%, var(--surf)) 0%, var(--bg) 78%);
+      display: flex; align-items: center; gap: 12px;
+    }
+
     /* Demo banner. Loud on purpose: the single worst outcome of demo mode is
        somebody reading fake scores as real ones. */
     .demo-bar {
@@ -336,6 +453,26 @@
         <div class="name">{{ me.owner_name or 'Owner' }}</div>
         <div class="team">{{ me.team_name or '' }}</div>
       </div>
+      <details class="theme-menu" id="theme-menu">
+        <summary title="Theme" aria-label="Theme"><span class="theme-dot"></span></summary>
+        <div class="theme-panel">
+          <div class="theme-panel-head">Theme</div>
+          <form method="POST" action="{{ url_for('set_theme') }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            {% for _k, _t in themes.items() %}
+            <button class="theme-opt{% if _k == theme %} sel{% endif %}" type="submit" name="theme" value="{{ _k }}"
+                    style="background: {{ _t.surf }}; border-color: {{ _t.brand if _k == theme else _t.border }};">
+              <span class="theme-swatch">
+                <i style="background: {{ _t.brand }};"></i><i style="background: {{ _t.curse }};"></i><i style="background: {{ _t.tiers.cooked.bg }};"></i>
+              </span>
+              <span class="theme-name" style="color: {{ _t.text }};">{{ _t.label }}</span>
+              {% if _k == theme %}<span class="theme-tick" style="color: {{ _t.brand }};">&check;</span>{% endif %}
+            </button>
+            {% endfor %}
+          </form>
+          <div class="theme-note">Only changes what you see.</div>
+        </div>
+      </details>
       <a class="header-out" href="{{ url_for('logout') }}">out</a>
     </div>
   </div>
@@ -348,13 +485,13 @@
   {% if me %}
   {% set ep = request.endpoint or '' %}
   <nav class="tab-bar">
-    <a class="{% if ep == 'board' %}active{% endif %}" href="{{ url_for('board') }}">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 5.5h18M3 12h18M3 18.5h18"/></svg>
-      <span class="label">Board</span>
-    </a>
     <a class="{% if ep == 'goose_watch' %}active{% endif %}" href="{{ url_for('goose_watch') }}">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/></svg>
       <span class="label">Watch</span>
+    </a>
+    <a class="{% if ep == 'board' %}active{% endif %}" href="{{ url_for('board') }}">
+      <img class="tab-tok" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="">
+      <span class="label">Curse</span>
     </a>
     <a class="{% if ep == 'my_geese' %}active{% endif %}" href="{{ url_for('my_geese') }}">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
@@ -384,6 +521,14 @@
 </div>
 
 <script>
+  // Close the theme menu when the tap lands anywhere else. <details> does not
+  // do this on its own, and a menu left hanging open over the board is worse
+  // than one that needs a second tap to open.
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('theme-menu');
+    if (menu && menu.open && !menu.contains(e.target)) menu.open = false;
+  });
+
   setTimeout(() => {
     document.querySelectorAll('.toast').forEach(t => {
       t.style.transition = 'opacity 0.3s';

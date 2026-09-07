@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.7.0] — 2026-09-07
+
+Navigation, the crown, and where a theme is chosen.
+
+### Changed
+- **The theme picker moved to the top ribbon**, where it belongs: a theme
+  applies to every screen, so choosing one from the bottom of a single screen
+  was the wrong place. It is a `<details>` disclosure on the swatch in the
+  header — no JS to open, closes on an outside tap, and each option previews
+  its own theme rather than the active one. `POST /me/theme` now returns to
+  the screen it was set from (a local path only — `next` arrives from a form
+  field, and a form field is user input).
+- **Board is now Curse**, tab and heading both, because casting is what owners
+  open that screen to do; "board" described the layout, not the job. The route
+  is still `board` — renaming it would have churned every `url_for` in the app
+  to rename one label. The tab wears Goothulu's face instead of an icon.
+- **Watch leads the tab bar.** On a Sunday it is the only screen anybody wants
+  and it was sitting second.
+
+### Fixed
+- **An injury designation no longer replaces the risk tier** on My Geese or on
+  Goose Watch. `OUT` in place of `COOKED` threw away the comparison the whole
+  model exists to make, and made an unavailable player look like a different
+  kind of problem from a badly projected one when they land in the same tier.
+  The tier is the verdict; the reason now sits under it as the cause.
+
+### Added
+- **Goothulu's crown.** The Goose Crown banner on Standings is now the artwork
+  wearing a drawn gold crown, with a pulsing halo and tentacle arcs bleeding
+  off the edge behind the count — all CSS and SVG, so it recolours with the
+  theme and costs no request.
+- **A podium.** Second and third place wear the same honour at stepped-down
+  intensity: the row wash, the rank colour and the mark (filled crown, outline
+  crown, chevron) all step down together, so the top three read as a ranking
+  rather than three separately highlighted rows. Everything derives from the
+  active theme's own gold, so Duck Blind gets brass and Goosifer gets ember.
+- **The crown on the Curse tab**, as a compact strip above the most-cursed
+  banner — the crown is what everyone is chasing, so it belongs next to the
+  button that moves it.
+- The crown is **vacant until somebody has chugged** (previously the sort
+  handed it to whoever came first at 0–0–0 in the preseason) and **says when
+  it is tied**.
+- `templates/_macros.html` for the shared crown, so the two screens that wear
+  it cannot drift into two subtly different crowns.
+
+### Tests
+`test_templates.py` gained a four-row standings case (one row could never
+compile the 2nd/3rd place flair), a `standings.html::vacant` case for the
+preseason branch, and `crown` on both board cases — 16 cases, each rendered
+under all five themes.
+
 ## [0.6.0] — 2026-09-07
 
 Five owner-selectable colour themes, wired all the way in — not just a design

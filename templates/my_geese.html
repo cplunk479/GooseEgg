@@ -21,6 +21,12 @@
   .num { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; }
   .card { background: var(--surf); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; }
   .listrow { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+  /* Why a player landed in his tier -- OUT, ON BYE, QUESTIONABLE. Secondary
+     to the tier on purpose: it explains the badge, it does not replace it. */
+  .why {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 9px;
+    letter-spacing: 0.09em; color: var(--ember); margin-top: 3px;
+  }
 </style>
 
 {% if my_curse %}
@@ -125,9 +131,12 @@
       </div>
       <div class="num" style="width: 44px; text-align: right;">{{ p.projection | pts }}</div>
       <div style="width: 78px; text-align: right;">
-        <span class="tier tier-{{ tier | tierclass }}">{{ p.reason or tier }}</span>
+        <span class="tier tier-{{ tier | tierclass }}">{{ tier }}</span>
+        {% if p.reason %}
+          <div class="why">{{ p.reason }}</div>
+        {% endif %}
         {% if p.ratio %}
-          <div style="font-size: 9px; color: var(--text3); margin-top: 3px;">
+          <div style="font-size: 9px; color: var(--text3); margin-top: 2px;">
             {{ (p.ratio * 100) | round | int }}% of {{ p.position or 'pos' }} avg
           </div>
         {% endif %}
@@ -210,25 +219,4 @@
   <div class="caption" style="padding: 4px 14px 20px;">A clean season so far.</div>
 {% endif %}
 
-<div style="padding: 14px 14px 6px; border-top: 6px solid var(--surf);">
-  <div class="section-head">Theme</div>
-  <div class="caption" style="margin-top: 2px;">Only changes what you see &mdash; nobody else's view moves.</div>
-</div>
-<form method="POST" action="{{ url_for('set_theme') }}" style="display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 14px 24px;">
-  {% for key, t in themes.items() %}
-  <button type="submit" name="theme" value="{{ key }}"
-          style="flex: 1 1 42%; min-width: 128px; cursor: pointer; text-align: left; font: inherit;
-                 background: {{ t.surf }}; border: 2px solid {{ t.brand if key == theme else t.border }};
-                 border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
-    <div style="display: flex; gap: 5px;">
-      <span style="width: 15px; height: 15px; border-radius: 50%; background: {{ t.brand }}; display: inline-block;"></span>
-      <span style="width: 15px; height: 15px; border-radius: 50%; background: {{ t.curse }}; display: inline-block;"></span>
-      <span style="width: 15px; height: 15px; border-radius: 50%; background: {{ t.tiers.cooked.bg }}; display: inline-block;"></span>
-    </div>
-    <div style="font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 800; font-size: 13px; letter-spacing: 0.02em; color: {{ t.text }};">
-      {{ t.label }}{% if key == theme %} <span style="font-size: 10px; font-weight: 600; color: {{ t.text2 }};">&middot; current</span>{% endif %}
-    </div>
-  </button>
-  {% endfor %}
-</form>
 {% endblock %}

@@ -16,6 +16,10 @@
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .w-sub { font-size: 10px; color: var(--text2); margin-top: 1px; }
   .w-pts { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 14px; text-align: right; }
+  .w-why {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 8.5px;
+    letter-spacing: 0.08em; color: var(--ember); margin-top: 2px;
+  }
   .w-clk { font-size: 9.5px; color: var(--text2); text-align: right; margin-top: 1px; letter-spacing: 0.04em; }
   .drink { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--blood);
            display: flex; align-items: center; justify-content: center; object-fit: cover;
@@ -162,7 +166,11 @@
       <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</div>
     </div>
     <div style="text-align: right;">
-      {% if r.tier %}<span class="tier tier-{{ r.tier | tierclass }}">{{ r.risk_reason or r.tier }}</span>{% endif %}
+      {% if r.tier %}<span class="tier tier-{{ r.tier | tierclass }}">{{ r.tier }}</span>{% endif %}
+      {# Same rule as My Geese: the injury explains the tier, it never stands
+         in for it. A player who is OUT and a player projected near zero are
+         both COOKED, and the board should say so. #}
+      {% if r.risk_reason %}<div class="w-why">{{ r.risk_reason }}</div>{% endif %}
       <div class="w-clk">{{ r.clock }}</div>
     </div>
   </div>

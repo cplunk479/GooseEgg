@@ -6,7 +6,9 @@ Flask front end for the GOOSE EGG Challenge.
 Thin on purpose: every state change lives in week_engine.py and every rule
 lives in settings.py. Routes authenticate, read, and render.
 
-Tabs mirror the design canvas: Board, Watch, My Geese, Standings, Admin.
+Tabs: Watch, Curse, My Geese, Standings, Admin. Watch leads because on a
+Sunday it is the only screen anybody opens. The Curse tab's route is still
+`board` -- the screen was renamed, not rebuilt.
 """
 from __future__ import annotations
 
@@ -300,6 +302,68 @@ def most_cursed(db, owners: dict) -> dict | None:
     }
 
 
+def _owner_avatar(owner_row):
+    """Bracket access, not .get -- owner rows are RealDictRow in production and
+    sqlite3.Row in tests, and only one of those two has .get()."""
+    if owner_row is None:
+        return None
+    try:
+        return owner_row["avatar"]
+    except (KeyError, IndexError):
+        return None
+
+
+def crown_key(row) -> tuple:
+    """
+    The one definition of "drunkest": most chugs, then most gooses, then most
+    curses landed. Standings sorts its whole table with this and crown_leader
+    takes the top of the same order, so the crown on the Curse tab can never
+    disagree with the crown on Standings.
+    """
+    return (-row["chugs"], -row["geese"], -row["curses_landed"])
+
+
+def crown_leader(db, owners: dict) -> dict | None:
+    """
+    Who holds the Goose Crown, in three grouped queries rather than the seven
+    per owner the Standings table runs -- this is a banner, not a table.
+
+    Returns None until somebody has actually chugged. An empty crown is worse
+    than no crown: in week 1 it names a leader who has done nothing, and the
+    tie-break would hand it to whoever sorts first.
+    """
+    def tally(sql, key):
+        return {r[key]: r["n"] for r in db.execute(sql, (SEASON,)).fetchall()}
+
+    chugs = tally("SELECT roster_id, COUNT(*) AS n FROM chugs "
+                  "WHERE season = %s GROUP BY roster_id", "roster_id")
+    geese = tally("SELECT roster_id, COUNT(*) AS n FROM gooses "
+                  "WHERE season = %s GROUP BY roster_id", "roster_id")
+    landed = tally("SELECT caster_roster_id, COUNT(*) AS n FROM curses "
+                   "WHERE season = %s AND status = 'landed' "
+                   "GROUP BY caster_roster_id", "caster_roster_id")
+
+    rows = [{
+        "roster_id": rid,
+        "team": label(owner),
+        "avatar": _owner_avatar(owner),
+        "chugs": chugs.get(rid, 0),
+        "geese": geese.get(rid, 0),
+        "curses_landed": landed.get(rid, 0),
+    } for rid, owner in owners.items()]
+    if not rows:
+        return None
+
+    rows.sort(key=crown_key)
+    top = dict(rows[0])
+    if top["chugs"] < 1:
+        return None
+    # A crown two owners are level on is a tie, and saying so is more honest
+    # than picking one of them and hoping nobody checks the table.
+    top["tied"] = sum(1 for r in rows if crown_key(r) == crown_key(top)) - 1
+    return top
+
+
 @app.route("/")
 def board():
     db = get_db()
@@ -371,6 +435,14 @@ def board():
     my_tokens = engine.unspent_tokens(db, SEASON, me["roster_id"])
     my_row = next((r for r in rows if r["is_me"]), None)
 
+    # Wrapped like every other read on this page: a banner is never worth a
+    # 500, and this one runs three queries the older schemas may not answer.
+    try:
+        crown = crown_leader(db, owners)
+    except Exception:
+        db.rollback()
+        crown = None
+
     weeks = [r["week"] for r in db.execute(
         "SELECT week FROM weeks WHERE season = %s ORDER BY week", (SEASON,)
     ).fetchall()] or [week]
@@ -379,7 +451,7 @@ def board():
         "board.html", week=week, wk=wk, rows=rows, my_row=my_row,
         my_tokens=len(my_tokens), my_blessed=me["roster_id"] in blessed,
         weeks=weeks, sealed=sealed, preview=preview,
-        most_cursed=most_cursed(db, owners),
+        most_cursed=most_cursed(db, owners), crown=crown,
         can_cast=wk["status"] == "open" and len(my_tokens) > 0,
         targets=[r for r in rows if not r["is_me"]],
     )
@@ -509,17 +581,23 @@ def set_theme():
     me = require_login(db)
     if me is None:
         return redirect(url_for("login"))
+    # The picker lives in the ribbon on every screen, so a theme change has to
+    # come back to the screen it was made from. Only a local path is accepted:
+    # "next" arrives from a form field, and a form field is user input.
+    nxt = request.form.get("next") or ""
+    back = nxt if nxt.startswith("/") and not nxt.startswith("//") else url_for("board")
+
     theme = request.form.get("theme", "")
     if theme not in themesmod.THEMES:
         flash("Unknown theme.", "error")
-        return redirect(url_for("my_geese"))
+        return redirect(back)
     db.execute(
         "UPDATE owners SET theme = %s WHERE league_id = %s AND season = %s AND roster_id = %s",
         (theme, LEAGUE_ID, SEASON, me["roster_id"]),
     )
     db.commit()
     flash(f"Theme set to {themesmod.THEMES[theme]['label']}.", "success")
-    return redirect(url_for("my_geese"))
+    return redirect(back)
 
 
 # --------------------------------------------------------------------------
@@ -630,9 +708,11 @@ def standings():
 
     # The crown goes to the DRUNKEST owner. Ties break on gooses, then on
     # curses landed -- doing it the hard way beats being handed it.
-    rows.sort(key=lambda r: (-r["chugs"], -r["geese"], -r["curses_landed"]))
+    rows.sort(key=crown_key)
     for i, r in enumerate(rows):
         r["rank"] = i + 1
+    if rows:
+        rows[0]["tied"] = sum(1 for r in rows if crown_key(r) == crown_key(rows[0])) - 1
 
     assassin = max(rows, key=lambda r: r["curses_landed"]) if rows else None
     teflon = min(rows, key=lambda r: r["geese"]) if rows else None

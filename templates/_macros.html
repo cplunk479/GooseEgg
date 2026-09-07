@@ -1,0 +1,20 @@
+{#
+  Shared bits of chrome that more than one screen draws.
+
+  The crown is here rather than copy-pasted because Standings and the Curse
+  tab both wear it, and a crown that is subtly different on two screens reads
+  as two different honours.
+#}
+
+{% macro crown(w=34) %}
+{#- Goothulu's crown. Gold band, three jewels, drawn rather than an image so
+    it recolours with the theme and stays sharp at any size. -#}
+<svg class="crown-icon" width="{{ w }}" height="{{ (w * 0.59) | round | int }}"
+     viewBox="0 0 34 20" fill="none" aria-hidden="true">
+  <path d="M3 17.4V5.1l6 4.6 8-7.3 8 7.3 6-4.6v12.3z"
+        fill="var(--gold)" stroke="var(--halo)" stroke-width="1.2" stroke-linejoin="round"/>
+  <circle cx="3" cy="3.9" r="2" fill="var(--halo)"/>
+  <circle cx="17" cy="1.7" r="2.2" fill="var(--halo)"/>
+  <circle cx="31" cy="3.9" r="2" fill="var(--halo)"/>
+</svg>
+{% endmacro %}

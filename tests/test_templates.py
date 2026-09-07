@@ -43,7 +43,8 @@ def build_env():
     env.filters.update(filtersmod.FILTERS)
     env.globals["url_for"] = lambda ep, **kw: f"/{ep}"
     env.globals["get_flashed_messages"] = lambda **kw: []
-    env.globals["request"] = type("R", (), {"endpoint": "board"})()
+    env.globals["request"] = type(
+        "R", (), {"endpoint": "board", "full_path": "/?"})()
     return env
 
 
@@ -67,6 +68,8 @@ BLANK_ROW = {**ROW, "roster_id": 2, "team": "Team 2", "is_me": False, "proj_tota
              "curses": [], "cast_on_them": 0, "blessed": True}
 
 MOST_CURSED = {"roster_id": 3, "team": "Team 3", "avatar": None, "count": 4, "landed": 2}
+CROWN = {"roster_id": 3, "team": "Team 3", "avatar": None, "chugs": 9, "geese": 6,
+         "curses_landed": 2, "tied": 0}
 
 CASES = {
     "login.html": {"owners": [{"roster_id": 1, "owner_name": "a", "team_name": "T"}], "me": None},
@@ -74,14 +77,15 @@ CASES = {
     "board.html": {
         "me": ME, "week": 1, "wk": WK, "rows": [ROW, BLANK_ROW], "my_row": ROW,
         "my_tokens": 2, "my_blessed": False, "weeks": [1], "sealed": True,
-        "preview": True, "can_cast": True, "most_cursed": MOST_CURSED,
+        "preview": True, "can_cast": True, "most_cursed": MOST_CURSED, "crown": CROWN,
         "targets": [BLANK_ROW],
     },
     "board.html::locked": {
         "_template": "board.html",
         "me": ME, "week": 1, "wk": {**WK, "status": "locked"}, "rows": [ROW, BLANK_ROW],
         "my_row": ROW, "my_tokens": 0, "my_blessed": True, "weeks": [1], "sealed": False,
-        "preview": False, "can_cast": False, "most_cursed": None, "targets": [BLANK_ROW],
+        "preview": False, "can_cast": False, "most_cursed": None, "crown": None,
+        "targets": [BLANK_ROW],
     },
     "my_geese.html": {
         "me": ME, "week": 1, "wk": WK, "owners": OWNERS,
@@ -155,7 +159,16 @@ CASES = {
         "me": ME,
         "rows": [{"rank": 1, "roster_id": 1, "team": "Team 1", "avatar": None, "chugs": 9,
                   "paid": 7, "owed": 2, "geese": 6, "from_curses": 3, "curses_landed": 2,
-                  "curses_failed": 3, "blessings": 0, "tokens": 1, "is_me": True}],
+                  "curses_failed": 3, "blessings": 0, "tokens": 1, "is_me": True, "tied": 1},
+                 {"rank": 2, "roster_id": 2, "team": "Team 2", "avatar": None, "chugs": 9,
+                  "paid": 9, "owed": 0, "geese": 5, "from_curses": 1, "curses_landed": 1,
+                  "curses_failed": 0, "blessings": 1, "tokens": 0, "is_me": False},
+                 {"rank": 3, "roster_id": 3, "team": "Team 3", "avatar": None, "chugs": 4,
+                  "paid": 4, "owed": 0, "geese": 4, "from_curses": 0, "curses_landed": 0,
+                  "curses_failed": 2, "blessings": 0, "tokens": 2, "is_me": False},
+                 {"rank": 4, "roster_id": 4, "team": "Team 4", "avatar": None, "chugs": 0,
+                  "paid": 0, "owed": 0, "geese": 0, "from_curses": 0, "curses_landed": 0,
+                  "curses_failed": 0, "blessings": 0, "tokens": 0, "is_me": False}],
         "assassin": {"team": "Team 3", "curses_landed": 4},
         "teflon": {"team": "Team 4", "geese": 1},
     },
@@ -190,6 +203,17 @@ CASES["admin.html::demo-on"] = {
     **CASES["admin.html::demo"],
     "demo_on": True,
     "demo": {"week": 1, "starters": 132, "gooses": ["p1", "p2", "p3", "p4", "p5"]},
+}
+
+# Preseason: every owner on zero chugs. The crown is vacant and no row wears
+# podium flair -- a branch that only exists before week 1 settles, and the one
+# most likely to rot unseen.
+CASES["standings.html::vacant"] = {
+    **CASES["standings.html"],
+    "most_cursed": None,
+    "rows": [{**r, "chugs": 0, "paid": 0, "owed": 0, "geese": 0, "curses_landed": 0,
+              "tied": 0}
+             for r in CASES["standings.html"]["rows"]],
 }
 
 # Every template renders with a strict Undefined, so a key the app forgets to

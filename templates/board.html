@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 {% block title %}Week {{ week }} — Goose Egg{% endblock %}
 {% block body %}
 <style>
@@ -76,7 +77,7 @@
 
 <div style="display: flex; align-items: flex-end; gap: 8px; padding: 13px 14px 8px; border-bottom: 1px solid var(--border);">
   <div style="flex: 1; min-width: 0;">
-    <div class="section-head">Week {{ week }} Board</div>
+    <div class="section-head">Week {{ week }} Curses</div>
     <div style="font-size: 10.5px; color: var(--text2); margin-top: 2px;">
       <span class="pill pill-{{ wk.status }}">{{ wk.status }}</span>
       {% if sealed %}<span class="pill pill-sealed" style="margin-left: 4px;">targets sealed</span>{% endif %}
@@ -97,6 +98,28 @@
   <div><strong style="color: var(--text);">Live preview.</strong>
     These projections move every time a lineup or an injury report changes. The numbers that
     curses are graded against are frozen at the first Sunday kickoff.</div>
+</div>
+{% endif %}
+
+{% if crown %}
+<div class="crown-strip">
+  <div class="crown-emblem sm">
+    {{ ui.crown(26) }}
+    <img class="crown-face" style="width: 36px; height: 36px;"
+         src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="Goothulu">
+  </div>
+  <div style="flex: 1; min-width: 0;">
+    <div class="crown-label" style="font-size: 9.5px;">GOOSE CROWN{% if crown.tied %} &middot; TIED{% endif %}</div>
+    <div class="bar" style="font-weight: 800; font-size: 16px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ crown.team }}</div>
+    <div style="font-size: 10px; color: var(--text2); margin-top: 1px;">
+      {{ crown.chugs }} chug{{ '' if crown.chugs == 1 else 's' }} this season
+      {%- if crown.tied %} &middot; level with {{ crown.tied }} other{{ '' if crown.tied == 1 else 's' }}{% endif %}
+    </div>
+  </div>
+  <div style="text-align: right;">
+    <div class="bar" style="font-weight: 800; font-size: 24px; line-height: 1; color: var(--gold);">{{ crown.chugs }}</div>
+    <div style="font-size: 8px; color: var(--text2); letter-spacing: 0.12em;">CHUGS</div>
+  </div>
 </div>
 {% endif %}
 
