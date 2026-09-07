@@ -9,7 +9,7 @@
     font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 12px;
     letter-spacing: 0.06em; text-transform: uppercase;
   }
-  .tabs a.sel { border-color: var(--gold); background: rgba(232,185,35,0.11); color: var(--gold); }
+  .tabs a.sel { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 11%, transparent); color: var(--gold); }
   .arow { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
   .anm { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; }
   .asub { font-size: 10px; color: var(--text2); margin-top: 1px; }
@@ -38,7 +38,7 @@
 <div class="tabs" style="border-top: none; padding-top: 0;">
   <a class="{% if tab == 'demo' %}sel{% endif %}" href="{{ url_for('admin', tab='demo') }}">Demo{% if demo_on %} &middot; ON{% endif %}</a>
   <a class="{% if tab == 'reset' %}sel{% endif %}" href="{{ url_for('admin', tab='reset') }}"
-     style="{% if tab == 'reset' %}border-color: var(--flame); background: rgba(217,87,58,0.12); color: var(--flame);{% endif %}">Reset</a>
+     style="{% if tab == 'reset' %}border-color: var(--flame); background: color-mix(in srgb, var(--flame) 12%, transparent); color: var(--flame);{% endif %}">Reset</a>
 </div>
 
 {% if tab == 'chugs' %}
@@ -73,7 +73,7 @@
   </div>
   {% for c in paid[:25] %}
   <div class="arow">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z" fill="var(--jade)"/><path d="M8.3 13l2.6 2.6L16 10" stroke="#0E0B07" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z" fill="var(--jade)"/><path d="M8.3 13l2.6 2.6L16 10" stroke="var(--tier-safe-bg)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <div style="flex: 1; min-width: 0;">
       <div class="anm">{{ label(owners.get(c.roster_id)) }}</div>
       <div class="asub">Week {{ c.week }}{% if c.safe_pour %} &middot; safe pour{% endif %}</div>
@@ -192,7 +192,7 @@
     </div>
   </div>
   {% if demo_on %}
-  <div style="margin: 0 14px 14px; padding: 13px 15px; border-radius: 12px; background: #241E05; border: 1px solid var(--gold);">
+  <div style="margin: 0 14px 14px; padding: 13px 15px; border-radius: 12px; background: color-mix(in srgb, var(--blessing) 14%, var(--surf2)); border: 1px solid var(--gold);">
     <div class="bar" style="font-weight: 800; font-size: 12px; letter-spacing: 0.14em; color: var(--halo);">DEMO MODE IS ON</div>
     <div class="caption" style="margin-top: 6px; line-height: 1.55;">
       Week {{ demo.week }} &middot; {{ demo.starters }} starters &middot;
@@ -226,7 +226,7 @@
     </div>
   </div>
 
-  <div style="margin: 0 14px 14px; padding: 14px 15px; border-radius: 12px; background: #1B100C; border: 1px solid rgba(217,87,58,0.5);">
+  <div style="margin: 0 14px 14px; padding: 14px 15px; border-radius: 12px; background: color-mix(in srgb, var(--flame) 10%, var(--surf2)); border: 1px solid color-mix(in srgb, var(--flame) 50%, transparent);">
     <div class="bar" style="font-weight: 800; font-size: 12px; letter-spacing: 0.14em; color: var(--flame);">CLEAR ONE WEEK</div>
     <form method="POST" action="{{ url_for('admin_reset') }}" style="margin-top: 10px;">
       <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 9px;">
@@ -240,11 +240,11 @@
         Type <strong id="rwlbl" style="color: var(--flame);">RESET WEEK {{ active }}</strong> exactly to confirm.
       </div>
       <button class="btn-primary" name="action" value="reset-week" type="submit"
-              style="background: var(--flame); color: #fff;">Clear this week</button>
+              style="background: var(--flame); color: var(--tier-cooked-fg);">Clear this week</button>
     </form>
   </div>
 
-  <div style="margin: 0 14px 24px; padding: 14px 15px; border-radius: 12px; background: #1B100C; border: 1px solid var(--blood);">
+  <div style="margin: 0 14px 24px; padding: 14px 15px; border-radius: 12px; background: color-mix(in srgb, var(--flame) 10%, var(--surf2)); border: 1px solid var(--blood);">
     <div class="bar" style="font-weight: 800; font-size: 12px; letter-spacing: 0.14em; color: var(--flame);">CLEAR THE WHOLE SEASON</div>
     <div class="caption" style="margin-top: 6px; line-height: 1.55;">
       Every week, every goose, every chug, every token and every curse of {{ season }}.
@@ -254,7 +254,7 @@
       <input class="input" type="text" name="confirm" autocomplete="off" spellcheck="false"
              placeholder="Type RESET SEASON {{ season }}" style="font-size: 13px; margin-bottom: 9px;">
       <button class="btn-primary" name="action" value="reset-season" type="submit"
-              style="background: var(--blood); color: #fff;">Clear season {{ season }}</button>
+              style="background: var(--flame); color: var(--tier-cooked-fg);">Clear season {{ season }}</button>
     </form>
   </div>
 

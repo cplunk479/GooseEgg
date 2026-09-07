@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.6.0] — 2026-09-07
+
+Five owner-selectable colour themes, wired all the way in — not just a design
+canvas. Goothulu (the original), Goosiah (the one light theme — parchment,
+gold leaf, royal blue and purple), Goosifer (fire and brimstone — cold ash at
+the safe end of the risk ramp, white-hot at the bad end), Maverick (a night
+carrier deck, tier ramp lifted off an instrument panel), and Duck Blind (olive
+drab and blaze orange).
+
+### What changed
+- `themes.py` — the five themes as data: base chrome tokens (bg/surf/border/
+  text/brand/curse/blessing/ink) plus a five-step risk-tier ramp per theme,
+  carried over unchanged from the design canvas's colour solver (already
+  validated for contrast, lightness-monotonicity, badge separation, and
+  simulated colour blindness — see the design canvas for the full case).
+- `owners.theme` — new additive column (migration in `db_init.py`), default
+  `'goothulu'` so every existing owner keeps today's look until they pick
+  something else.
+- `base.html` — the old single hardcoded `:root` palette is now five
+  `:root[data-theme="..."]` blocks, generated from `themes.py` via a Jinja
+  loop so the CSS and the Python data can never drift apart. Every other
+  hardcoded colour across `board.html`, `watch.html`, `standings.html`,
+  `admin.html` and `my_geese.html` — curse/blessing gradients, danger
+  banners, the team-rating dot — now derives from the active theme's tokens,
+  most via `color-mix()` rather than a hand-picked constant per theme.
+- `/me/theme` — new route. My Geese has a five-card picker at the bottom,
+  each card previewing that theme's own colours (not the active theme's) so
+  it doubles as a live sample.
+- A theme choice is entirely per-owner and client-side-invisible to everyone
+  else — there is no shared "league theme."
+
+### Why `owners.theme` couldn't 500 the page
+`inject_globals` resolves the active theme by bracket-indexing the owner row
+and falling back to Goothulu on any `KeyError` — the same defensive pattern
+`test_resilience.py` already exists to enforce, so a database that hasn't
+run this migration yet (or any future one) degrades to the default theme
+instead of a 500. Extended `test_resilience.py`'s stale-schema case to cover
+it, and `test_templates.py` now renders every template under all five themes,
+not just the one it used to assume.
+
 ## [0.5.1] — 2026-09-06
 
 Hotfix. v0.5.0 deployed green and Goose Watch returned a 500.

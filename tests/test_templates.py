@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import filters as filtersmod  # noqa: E402
 import goose  # noqa: E402
+import themes as themesmod  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 failures: list[str] = []
@@ -206,7 +207,8 @@ def main() -> int:
             ctx = {k: v for k, v in ctx.items() if k != "_template"}
             html = env.get_template(tpl_name).render(
                 season=2026, pending_chugs=1, app_version="0.1.0",
-                demo_mode=False, tier_order=list(goose.TIERS), **ctx
+                demo_mode=False, tier_order=list(goose.TIERS),
+                theme=themesmod.DEFAULT_THEME, themes=themesmod.THEMES, **ctx
             )
             check(name, len(html) > 200, f"only {len(html)} chars")
         except Exception as exc:

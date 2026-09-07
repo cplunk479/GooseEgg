@@ -3,7 +3,7 @@
 {% block body %}
 <style>
   .st-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
-  .st-row.crown { background: linear-gradient(90deg, rgba(232,185,35,0.09) 0%, var(--bg) 58%); }
+  .st-row.crown { background: linear-gradient(90deg, color-mix(in srgb, var(--blessing) 9%, transparent) 0%, var(--bg) 58%); }
   .st-nm { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px;
            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .st-sub { font-size: 10px; color: var(--text2); margin-top: 1px; }
@@ -12,7 +12,7 @@
 
 {% if rows %}
 {% set leader = rows[0] %}
-<div style="margin: 14px; padding: 15px 16px; border: 1px solid rgba(232,185,35,0.45); border-radius: 12px; background: linear-gradient(160deg, #201803 0%, #12100A 76%); display: flex; align-items: center; gap: 14px;">
+<div style="margin: 14px; padding: 15px 16px; border: 1px solid color-mix(in srgb, var(--blessing) 45%, transparent); border-radius: 12px; background: linear-gradient(160deg, color-mix(in srgb, var(--blessing) 16%, var(--surf)) 0%, var(--bg) 76%); display: flex; align-items: center; gap: 14px;">
   <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="1.5" style="flex-shrink: 0;"><path d="M12 2.5c4.4 0 7.8 5.2 7.8 10 0 5.1-3.5 8.8-7.8 8.8S4.2 17.6 4.2 12.5c0-4.8 3.4-10 7.8-10Z"/></svg>
   <div style="min-width: 0;">
     <div class="bar" style="font-weight: 800; font-size: 10px; letter-spacing: 0.18em; color: var(--gold);">GOOSE CROWN</div>
@@ -62,8 +62,8 @@
 
 {% if most_cursed %}
 <div style="margin: 14px; padding: 12px 14px; border-radius: 12px;
-            background: linear-gradient(150deg, #24140A 0%, #16100A 80%);
-            border: 1px solid rgba(196,106,30,0.55); display: flex; align-items: center; gap: 11px;">
+            background: linear-gradient(150deg, color-mix(in srgb, var(--ember) 18%, var(--surf)) 0%, var(--bg) 80%);
+            border: 1px solid color-mix(in srgb, var(--ember) 55%, transparent); display: flex; align-items: center; gap: 11px;">
   <img class="tok tok-34 tok--landed" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="Goothulu">
   <div style="flex: 1; min-width: 0;">
     <div class="bar" style="font-weight: 800; font-size: 10px; letter-spacing: 0.16em; color: var(--ember);">MOST CURSED BY GOOTHULU</div>

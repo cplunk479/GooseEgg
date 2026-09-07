@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en" data-theme="{{ theme }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0E0B07">
+  <meta name="theme-color" content="{{ themes[theme].bg }}">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Goose Egg">
@@ -19,24 +19,36 @@
        replace the FAAB app's cold green so the two never read as one app.
        Geometry, type ramp and control sizes are lifted from
        faab-platform/templates/base.html unchanged. */
+    /* Fallback in case data-theme is ever missing -- Goothulu, the original. */
     :root {
-      --bg: #0E0B07;
-      --surf: #1A1510;
-      --surf2: #251D15;
-      --border: #33281C;
-      --gold: #E8B923;      /* Goosiah, safe, primary action */
-      --halo: #F2CE4B;
-      --ember: #C46A1E;     /* Goothulu, curse */
-      --flame: #D9573A;
-      --blood: #7A2A16;     /* chug owed */
-      --jade: #3E7D6E;      /* clean, confirmed */
-      --text: #F5EBD0;
-      --text2: #8A7A66;
-      --text3: #574A3A;
+      --bg: #0E0B07; --surf: #1A1510; --surf2: #251D15; --border: #33281C;
+      --text: #F5EBD0; --text2: #A08D74; --text3: #6B5C48;
+      --gold: #E8B923; --halo: #F2CE4B; --ember: #D9821E; --blessing: #E8B923; --ink: #0E0B07;
+      --flame: #ec554e; --jade: #5fbc9c; --blood: #D9821E;
+      --tier-safe-bg: #07241b; --tier-safe-fg: #5fbc9c;
+      --tier-solid-bg: #242f19; --tier-solid-fg: #a0c081;
+      --tier-shaky-bg: #423917; --tier-shaky-fg: #e1cb88;
+      --tier-bait-bg: #a34803; --tier-bait-fg: #fef1ea;
+      --tier-cooked-bg: #ec554e; --tier-cooked-fg: #1f0701;
     }
+    {% for _tkey, _t in themes.items() %}
+    /* {{ _t.label }} -- {{ _t.blurb }} */
+    :root[data-theme="{{ _tkey }}"] {
+      color-scheme: {{ _t.mode }};
+      --bg: {{ _t.bg }}; --surf: {{ _t.surf }}; --surf2: {{ _t.surf2 }}; --border: {{ _t.border }};
+      --text: {{ _t.text }}; --text2: {{ _t.text2 }}; --text3: {{ _t.text3 }};
+      --gold: {{ _t.brand }}; --halo: {{ _t.halo }}; --ember: {{ _t.curse }}; --blessing: {{ _t.blessing }}; --ink: {{ _t.ink }};
+      --flame: {{ _t.tiers.cooked.bg }}; --jade: {{ _t.tiers.safe.fg }}; --blood: {{ _t.curse }};
+      --tier-safe-bg: {{ _t.tiers.safe.bg }}; --tier-safe-fg: {{ _t.tiers.safe.fg }};
+      --tier-solid-bg: {{ _t.tiers.solid.bg }}; --tier-solid-fg: {{ _t.tiers.solid.fg }};
+      --tier-shaky-bg: {{ _t.tiers.shaky.bg }}; --tier-shaky-fg: {{ _t.tiers.shaky.fg }};
+      --tier-bait-bg: {{ _t.tiers.bait.bg }}; --tier-bait-fg: {{ _t.tiers.bait.fg }};
+      --tier-cooked-bg: {{ _t.tiers.cooked.bg }}; --tier-cooked-fg: {{ _t.tiers.cooked.fg }};
+    }
+    {% endfor %}
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { background: #080603; }
+    html, body { background: var(--bg); }
     body {
       min-height: 100vh;
       font-family: 'Inter', system-ui, sans-serif;
@@ -136,16 +148,16 @@
       font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
       letter-spacing: 0.06em; text-transform: uppercase;
     }
-    .pill-clean     { background: #1B2620; color: #4FA48F; }
-    .pill-risk      { background: #2A1C0C; color: var(--gold); }
-    .pill-cursed    { background: #2D1A0B; color: var(--ember); }
-    .pill-blessed   { background: #2A2207; color: var(--halo); }
-    .pill-goosed    { background: #2B1410; color: var(--flame); }
-    .pill-owed      { background: #2B1410; color: var(--flame); }
-    .pill-paid      { background: #1B2620; color: #4FA48F; }
+    .pill-clean     { background: var(--tier-safe-bg); color: var(--tier-safe-fg); }
+    .pill-risk      { background: var(--tier-shaky-bg); color: var(--tier-shaky-fg); }
+    .pill-cursed    { background: color-mix(in srgb, var(--ember) 18%, var(--surf2)); color: var(--ember); }
+    .pill-blessed   { background: color-mix(in srgb, var(--blessing) 18%, var(--surf2)); color: var(--halo); }
+    .pill-goosed    { background: var(--tier-cooked-bg); color: var(--tier-cooked-fg); }
+    .pill-owed      { background: var(--tier-cooked-bg); color: var(--tier-cooked-fg); }
+    .pill-paid      { background: var(--tier-safe-bg); color: var(--tier-safe-fg); }
     .pill-sealed    { background: var(--surf2); color: var(--text2); }
     .pill-locked    { background: var(--surf2); color: var(--text2); }
-    .pill-open      { background: #1B2620; color: #4FA48F; }
+    .pill-open      { background: var(--tier-safe-bg); color: var(--tier-safe-fg); }
     .pill-final     { background: var(--surf2); color: var(--text2); }
     .pill-upcoming  { background: var(--surf2); color: var(--text3); }
 
@@ -163,8 +175,8 @@
       width: 42px; height: 42px; border-radius: 50%; object-fit: cover;
       border: 2px solid var(--border); background: var(--surf2);
     }
-    .token--curse { border-color: var(--ember); box-shadow: 0 0 15px rgba(196,106,30,0.45); }
-    .token--bless { border-color: var(--gold); box-shadow: 0 0 15px rgba(232,185,35,0.4); }
+    .token--curse { border-color: var(--ember); box-shadow: 0 0 15px color-mix(in srgb, var(--ember) 45%, transparent); }
+    .token--bless { border-color: var(--blessing); box-shadow: 0 0 15px color-mix(in srgb, var(--blessing) 40%, transparent); }
     .token--off { opacity: 0.28; filter: grayscale(0.8); }
     .token-wrap { position: relative; width: 42px; height: 42px; }
     .token-count {
@@ -180,13 +192,13 @@
       pointer-events: none; display: flex; flex-direction: column; gap: 6px;
     }
     .toast {
-      background: var(--gold); color: #0E0B07; border-radius: 10px; padding: 12px 16px;
+      background: var(--gold); color: var(--ink); border-radius: 10px; padding: 12px 16px;
       font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 14px;
       letter-spacing: 0.04em; text-align: center;
-      box-shadow: 0 4px 20px rgba(232,185,35,0.28);
+      box-shadow: 0 4px 20px color-mix(in srgb, var(--gold) 28%, transparent);
       animation: toastIn 0.2s ease-out;
     }
-    .toast.error { background: var(--flame); color: #fff; box-shadow: 0 4px 20px rgba(217,87,58,0.3); }
+    .toast.error { background: var(--flame); color: var(--tier-cooked-fg); box-shadow: 0 4px 20px color-mix(in srgb, var(--flame) 30%, transparent); }
     @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
     .input, .select {
@@ -196,7 +208,7 @@
     }
     .input:focus, .select:focus { border-color: var(--gold); }
     .btn-primary {
-      width: 100%; background: var(--gold); color: #0E0B07; border: none;
+      width: 100%; background: var(--gold); color: var(--ink); border: none;
       border-radius: 12px; padding: 14px;
       font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 15px;
       letter-spacing: 0.08em; text-transform: uppercase;
@@ -208,7 +220,7 @@
       color: var(--text); font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
       font-size: 12px; letter-spacing: 0.06em; padding: 6px 10px; text-transform: uppercase;
     }
-    .btn-sm.go { border-color: var(--jade); color: #4FA48F; }
+    .btn-sm.go { border-color: var(--jade); color: var(--jade); }
     .btn-sm.warn { border-color: var(--blood); color: var(--flame); }
 
     .chip {
@@ -217,7 +229,7 @@
       font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 13px;
       letter-spacing: 0.06em;
     }
-    .chip.sel { border-color: var(--gold); background: rgba(232,185,35,0.11); color: var(--gold); }
+    .chip.sel { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 11%, transparent); color: var(--gold); }
 
     .egg { flex-shrink: 0; }
 
@@ -233,20 +245,20 @@
       font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
       white-space: nowrap;
     }
-    .tier-safe       { background: #16241F; color: #4FA48F; }
-    .tier-solid      { background: #1B2318; color: #86A05C; }
-    .tier-shaky      { background: #2A2207; color: var(--gold); }
-    .tier-goose-bait { background: #2D1A0B; color: var(--ember); }
-    .tier-cooked     { background: #2B1410; color: var(--flame); }
+    .tier-safe       { background: var(--tier-safe-bg); color: var(--tier-safe-fg); }
+    .tier-solid      { background: var(--tier-solid-bg); color: var(--tier-solid-fg); }
+    .tier-shaky      { background: var(--tier-shaky-bg); color: var(--tier-shaky-fg); }
+    .tier-goose-bait { background: var(--tier-bait-bg); color: var(--tier-bait-fg); }
+    .tier-cooked     { background: var(--tier-cooked-bg); color: var(--tier-cooked-fg); }
     .tier-unknown    { background: var(--surf2); color: var(--text3); }
 
     /* Team rating. Deliberately a different vocabulary from the player tiers
        -- CLEAN/STEADY/EXPOSED/GOOSE BAIT -- so nobody reads a lineup rating as
        a player rating. Same ramp, one fewer step. */
-    .trisk-clean      { background: #16241F; color: #4FA48F; }
-    .trisk-steady     { background: #1B2318; color: #86A05C; }
-    .trisk-exposed    { background: #2A2207; color: var(--gold); }
-    .trisk-goose-bait { background: #2D1A0B; color: var(--ember); }
+    .trisk-clean      { background: var(--tier-safe-bg); color: var(--tier-safe-fg); }
+    .trisk-steady     { background: var(--tier-solid-bg); color: var(--tier-solid-fg); }
+    .trisk-exposed    { background: var(--tier-shaky-bg); color: var(--tier-shaky-fg); }
+    .trisk-goose-bait { background: var(--tier-bait-bg); color: var(--tier-bait-fg); }
 
     .bar-track { height: 3px; border-radius: 2px; background: var(--surf2); overflow: hidden; }
 
@@ -262,25 +274,25 @@
     .tok-34 { width: 34px; height: 34px; }
     .tok-22 { width: 22px; height: 22px; }
     .tok-17 { width: 17px; height: 17px; }
-    .tok--curse  { border: 2px solid var(--ember); box-shadow: 0 0 18px rgba(196,106,30,0.5); }
-    .tok--landed { border: 2px solid var(--flame); box-shadow: 0 0 22px rgba(122,42,22,0.85); }
+    .tok--curse  { border: 2px solid var(--ember); box-shadow: 0 0 18px color-mix(in srgb, var(--ember) 50%, transparent); }
+    .tok--landed { border: 2px solid var(--flame); box-shadow: 0 0 22px color-mix(in srgb, var(--flame) 85%, transparent); }
     .tok--sealed { border: 2px dashed var(--ember); opacity: 0.8; }
-    .tok--bless  { border: 2px solid var(--gold); box-shadow: 0 0 20px rgba(232,185,35,0.45); }
+    .tok--bless  { border: 2px solid var(--blessing); box-shadow: 0 0 20px color-mix(in srgb, var(--blessing) 45%, transparent); }
     .tok--spent  { border: 2px solid var(--border); opacity: 0.26; filter: grayscale(0.85); }
     .tok--off    { border: 2px solid var(--border); opacity: 0.16; filter: grayscale(1); }
 
     /* The shield. A blessing is the one genuinely good thing that happens in
        this app, so it is the one thing that moves. */
     .tok--shield {
-      border: 2px solid var(--gold);
+      border: 2px solid var(--blessing);
       animation: halo 2.4s ease-in-out infinite;
     }
     @keyframes halo {
-      0%, 100% { box-shadow: 0 0 10px rgba(232,185,35,0.40); }
-      50%      { box-shadow: 0 0 26px rgba(242,206,75,0.90); }
+      0%, 100% { box-shadow: 0 0 10px color-mix(in srgb, var(--blessing) 40%, transparent); }
+      50%      { box-shadow: 0 0 26px color-mix(in srgb, var(--halo) 90%, transparent); }
     }
     @media (prefers-reduced-motion: reduce) {
-      .tok--shield { animation: none; box-shadow: 0 0 22px rgba(232,185,35,0.6); }
+      .tok--shield { animation: none; box-shadow: 0 0 22px color-mix(in srgb, var(--blessing) 60%, transparent); }
       .live-dot { animation: none; }
     }
 
@@ -290,7 +302,7 @@
     /* Demo banner. Loud on purpose: the single worst outcome of demo mode is
        somebody reading fake scores as real ones. */
     .demo-bar {
-      background: repeating-linear-gradient(135deg, #3A2A05 0 10px, #2E2104 10px 20px);
+      background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--gold) 22%, var(--bg)) 0 10px, color-mix(in srgb, var(--gold) 12%, var(--bg)) 10px 20px);
       border-bottom: 1px solid var(--gold);
       color: var(--halo); text-align: center;
       font-family: 'Barlow Condensed', sans-serif; font-weight: 800;

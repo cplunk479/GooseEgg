@@ -3,8 +3,8 @@
 {% block body %}
 <style>
   .row-wrap { border-bottom: 1px solid var(--border); }
-  .row-wrap.cursed  { background: linear-gradient(160deg, #1D1109 0%, var(--bg) 72%); }
-  .row-wrap.blessed { background: linear-gradient(160deg, #191505 0%, var(--bg) 72%); }
+  .row-wrap.cursed  { background: linear-gradient(160deg, color-mix(in srgb, var(--ember) 14%, var(--surf)) 0%, var(--bg) 72%); }
+  .row-wrap.blessed { background: linear-gradient(160deg, color-mix(in srgb, var(--blessing) 12%, var(--surf)) 0%, var(--bg) 72%); }
   .ribbon {
     display: flex; align-items: center; gap: 6px; padding: 6px 14px 1px;
     font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
@@ -38,8 +38,8 @@
   .curse-btn:disabled { opacity: 0.3; cursor: default; }
   .banner {
     margin: 12px 14px; padding: 12px 14px; border-radius: 12px;
-    background: linear-gradient(150deg, #24140A 0%, #16100A 80%);
-    border: 1px solid rgba(196,106,30,0.55);
+    background: linear-gradient(150deg, color-mix(in srgb, var(--ember) 18%, var(--surf)) 0%, var(--bg) 80%);
+    border: 1px solid color-mix(in srgb, var(--ember) 55%, transparent);
     display: flex; align-items: center; gap: 11px;
   }
 </style>
@@ -191,7 +191,7 @@
           <div class="bar-track" style="margin-top: 5px;">
             {% set pctw = ((r.risk_score or 0) / 2.6 * 100) | round | int %}
             <div style="height: 3px; width: {{ [pctw, 100] | min }}%;
-                        background: {% if r.risk_tier == 'GOOSE BAIT' %}var(--ember){% elif r.risk_tier == 'EXPOSED' %}var(--gold){% elif r.risk_tier == 'STEADY' %}#86A05C{% else %}var(--jade){% endif %};"></div>
+                        background: {% if r.risk_tier == 'GOOSE BAIT' %}var(--tier-bait-fg){% elif r.risk_tier == 'EXPOSED' %}var(--tier-shaky-fg){% elif r.risk_tier == 'STEADY' %}var(--tier-solid-fg){% else %}var(--tier-safe-fg){% endif %};"></div>
           </div>
         {% else %}
           <span class="tier tier-unknown">—</span>

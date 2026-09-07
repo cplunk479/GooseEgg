@@ -9,8 +9,8 @@
     border-radius: 4px; padding: 3px 0;
   }
   .pl-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
-  .pl-row.hot { background: linear-gradient(90deg, rgba(196,106,30,0.12) 0%, var(--bg) 55%); }
-  .pl-row.gsd { background: linear-gradient(90deg, rgba(122,42,22,0.16) 0%, var(--bg) 62%); }
+  .pl-row.hot { background: linear-gradient(90deg, color-mix(in srgb, var(--ember) 12%, transparent) 0%, var(--bg) 55%); }
+  .pl-row.gsd { background: linear-gradient(90deg, color-mix(in srgb, var(--blood) 16%, transparent) 0%, var(--bg) 62%); }
   .pl-photo { width: 32px; height: 32px; border-radius: 7px; object-fit: cover;
               background: var(--surf2); flex-shrink: 0; }
   .pl-blank { width: 32px; height: 32px; border-radius: 7px; flex-shrink: 0;
@@ -24,7 +24,7 @@
 </style>
 
 {% if my_curse %}
-<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(160deg, #24140A 0%, #16100A 80%); border-bottom: 1px solid rgba(196,106,30,0.5);">
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(160deg, color-mix(in srgb, var(--ember) 18%, var(--surf)) 0%, var(--bg) 80%); border-bottom: 1px solid color-mix(in srgb, var(--ember) 50%, transparent);">
   <img class="tok tok-34 tok--curse" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="Goothulu">
   <div>
     <div class="bar" style="font-weight: 800; font-size: 11px; letter-spacing: 0.16em; color: var(--ember);">GOOTHULU&rsquo;S CURSE IS ON YOU</div>
@@ -36,7 +36,7 @@
 {% endif %}
 
 {% if blessing %}
-<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(160deg, #241E05 0%, #16130A 80%); border-bottom: 1px solid rgba(232,185,35,0.45);">
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(160deg, color-mix(in srgb, var(--blessing) 18%, var(--surf)) 0%, var(--bg) 80%); border-bottom: 1px solid color-mix(in srgb, var(--blessing) 45%, transparent);">
   <img class="tok tok-34 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="Goosiah">
   <div>
     <div class="bar" style="font-weight: 800; font-size: 11px; letter-spacing: 0.16em; color: var(--gold);">GOOSIAH&rsquo;S BLESSING IS SHIELDING YOU</div>
@@ -57,7 +57,7 @@
       {%- else %}frozen at kickoff{% endif %}
     </div>
   </div>
-  <div class="card" style="width: 148px; {% if my_curse %}border-color: rgba(196,106,30,0.5);{% endif %}">
+  <div class="card" style="width: 148px; {% if my_curse %}border-color: color-mix(in srgb, var(--ember) 50%, transparent);{% endif %}">
     <div class="overline">Goose risk</div>
     {% if team_risk and team_risk.tier %}
       <div style="margin-top: 6px;"><span class="tier trisk-{{ team_risk.tier | tierclass }}" style="font-size: 12px; padding: 4px 8px;">{{ team_risk.tier }}</span></div>
@@ -209,4 +209,26 @@
 {% else %}
   <div class="caption" style="padding: 4px 14px 20px;">A clean season so far.</div>
 {% endif %}
+
+<div style="padding: 14px 14px 6px; border-top: 6px solid var(--surf);">
+  <div class="section-head">Theme</div>
+  <div class="caption" style="margin-top: 2px;">Only changes what you see &mdash; nobody else's view moves.</div>
+</div>
+<form method="POST" action="{{ url_for('set_theme') }}" style="display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 14px 24px;">
+  {% for key, t in themes.items() %}
+  <button type="submit" name="theme" value="{{ key }}"
+          style="flex: 1 1 42%; min-width: 128px; cursor: pointer; text-align: left; font: inherit;
+                 background: {{ t.surf }}; border: 2px solid {{ t.brand if key == theme else t.border }};
+                 border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+    <div style="display: flex; gap: 5px;">
+      <span style="width: 15px; height: 15px; border-radius: 50%; background: {{ t.brand }}; display: inline-block;"></span>
+      <span style="width: 15px; height: 15px; border-radius: 50%; background: {{ t.curse }}; display: inline-block;"></span>
+      <span style="width: 15px; height: 15px; border-radius: 50%; background: {{ t.tiers.cooked.bg }}; display: inline-block;"></span>
+    </div>
+    <div style="font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; font-weight: 800; font-size: 13px; letter-spacing: 0.02em; color: {{ t.text }};">
+      {{ t.label }}{% if key == theme %} <span style="font-size: 10px; font-weight: 600; color: {{ t.text2 }};">&middot; current</span>{% endif %}
+    </div>
+  </button>
+  {% endfor %}
+</form>
 {% endblock %}

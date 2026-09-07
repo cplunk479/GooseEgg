@@ -26,6 +26,7 @@ import goose
 import players_sync
 import settings as settingsmod
 import sleeper
+import themes as themesmod
 import watch as watch_mod
 import week_engine as engine
 
@@ -123,6 +124,19 @@ def label(owner_row) -> str:
     return owner_row["team_name"] or owner_row["owner_name"] or f"Roster {owner_row['roster_id']}"
 
 
+def owner_theme(owner_row) -> str:
+    """The owner's stored theme, or the default if unset/unknown. Bracket
+    access (not .get) so this works on both RealDictCursor rows in
+    production and sqlite3.Row in tests -- neither is a plain dict."""
+    if owner_row is None:
+        return themesmod.DEFAULT_THEME
+    try:
+        raw = owner_row["theme"]
+    except (KeyError, IndexError):
+        raw = None
+    return themesmod.resolve(raw)
+
+
 def _app_version() -> str:
     try:
         with open(os.path.join(os.path.dirname(__file__), "VERSION")) as fh:
@@ -163,6 +177,9 @@ def inject_globals():
         "demo_mode": bool(sleeper.demo_payload()),
         "tier_order": list(goose.TIERS),
         "app_version": _app_version(),
+        "theme": owner_theme(owner),
+        "themes": themesmod.THEMES,
+        "theme_choices": themesmod.theme_choices(),
     }
 
 
@@ -484,6 +501,25 @@ def my_geese():
         blessing=engine.active_blessing(db, SEASON, rid, week),
         label=label,
     )
+
+
+@app.route("/me/theme", methods=["POST"])
+def set_theme():
+    db = get_db()
+    me = require_login(db)
+    if me is None:
+        return redirect(url_for("login"))
+    theme = request.form.get("theme", "")
+    if theme not in themesmod.THEMES:
+        flash("Unknown theme.", "error")
+        return redirect(url_for("my_geese"))
+    db.execute(
+        "UPDATE owners SET theme = %s WHERE league_id = %s AND season = %s AND roster_id = %s",
+        (theme, LEAGUE_ID, SEASON, me["roster_id"]),
+    )
+    db.commit()
+    flash(f"Theme set to {themesmod.THEMES[theme]['label']}.", "success")
+    return redirect(url_for("my_geese"))
 
 
 # --------------------------------------------------------------------------
