@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.9.1] — 2026-09-09
+
+Fix the team name wrapping on the Curse board.
+
+### Fixed
+- **The status line under a team name was wrapping onto a second line**,
+  which is what actually read as "the team name wrapped": `.row .nm` (the
+  name itself) already truncated to one line with an ellipsis, but `.row
+  .sub` — the goose-count/at-risk phrase, now joined by the live score and
+  the "lineup" tap hint added in v0.9.0 — had no such rule and simply broke
+  onto a second line in the ~90px-wide name column on a phone, making the
+  whole row look broken rather than the name looking merely short. `.row
+  .sub` now truncates the same way `.row .nm` does: one line, ellipsis if it
+  doesn't fit.
+- The status phrase (goose count / at-risk / clean-so-far / no-projection)
+  was duplicated near-verbatim between the tap and non-tap branches of the
+  row, and the v0.9.0 live-score clause was added to only one copy — which is
+  how the two got crowded enough to disagree in the first place. It is now
+  computed once per row and reused by both.
+
+### Tests
+`test_templates.py` gained a regression guard: for every `board.html` case it
+scans the rendered page for `.row .nm` and `.row .sub` and fails if either
+rule has lost its `white-space: nowrap`. A rendered-HTML test cannot measure
+real layout, but it catches the actual class of bug that shipped here —
+editing one selector's CSS without checking the other stayed in sync. 361
+checks pass.
+
 ## [0.9.0] — 2026-09-09
 
 Collapsible starting lineups on the Curse board, and the actuals finally

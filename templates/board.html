@@ -25,7 +25,15 @@
     font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 16px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .row .sub { font-size: 10px; color: var(--text2); margin-top: 1px; }
+  .row .sub {
+    font-size: 10px; color: var(--text2); margin-top: 1px;
+    /* The name above already truncates to one line; the status line under it
+       has to match or a long phrase (at-risk count, live score, the "lineup"
+       hint, all in the same 90-ish px column on a phone) wraps onto a second
+       line and the whole row looks broken rather than the name looking
+       merely short. One clean line, ellipsis if it doesn't fit, same as .nm. */
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   /* Four fixed columns after the team name: projection, marks, risk, curse.
      Widths are fixed so the whole board reads as a table on a 390px phone
      rather than twelve differently-shaped rows. */
@@ -270,6 +278,13 @@
       </div>
     {% endif %}
 
+    {# The status phrase, computed once and reused by both branches below so
+       the tap and non-tap paths cannot drift into two different wordings --
+       which is exactly how this got crowded enough to wrap in the first
+       place: the lineup live-score clause was added to one copy and not
+       meaningfully coordinated with the other. #}
+    {% set status_phrase %}{% if r.goose_count %}{{ r.goose_count }} goose{{ '' if r.goose_count == 1 else 's' }}{% elif r.actual_total is not none %}clean so far &middot; {{ r.actual_total | pts }}{% elif r.at_risk %}{{ r.at_risk }} slot{{ '' if r.at_risk == 1 else 's' }} at risk{% elif r.risk_tier %}nothing to worry about{% else %}no projection yet{% endif %}{% endset %}
+
     <div class="row">
       {% if r.avatar %}
         <img class="logo" src="https://sleepercdn.com/avatars/thumbs/{{ r.avatar }}" alt="" onerror="this.style.visibility='hidden'">
@@ -284,26 +299,15 @@
           <span class="caret">&#9654;</span>
           <span style="flex: 1; min-width: 0;">
             <span class="nm" style="display: block;{% if r.is_me %} color: var(--gold);{% endif %}">{{ r.team }}</span>
-            <span class="sub" style="display: block;">
-              {% if r.goose_count %}{{ r.goose_count }} goose{{ '' if r.goose_count == 1 else 's' }}
-            {%- elif r.actual_total is not none %}clean so far &middot; {{ r.actual_total | pts }}
-            {%- elif r.at_risk %}{{ r.at_risk }} slot{{ '' if r.at_risk == 1 else 's' }} at risk
-            {%- elif r.risk_tier %}nothing to worry about
-            {%- else %}no projection yet{% endif %}
-            {%- if r.lineup and r.lineup.any_started %} &middot; <span style="color: var(--gold);">{{ r.lineup.actual_total | pts }} {{ 'final' if r.lineup.all_final else 'live' }}</span>{% endif %}<span class="hint">lineup</span>
-            </span>
+            <span class="sub">{{ status_phrase|trim
+              }}{% if r.lineup.any_started %} &middot; <span style="color: var(--gold);">{{ r.lineup.actual_total | pts }} {{ 'final' if r.lineup.all_final else 'live' }}</span>{% endif
+              %}<span class="hint">lineup</span></span>
           </span>
         </button>
       {% else %}
       <div style="flex: 1; min-width: 0;">
         <div class="nm" {% if r.is_me %}style="color: var(--gold);"{% endif %}>{{ r.team }}</div>
-        <div class="sub">
-          {% if r.goose_count %}{{ r.goose_count }} goose{{ '' if r.goose_count == 1 else 's' }}
-            {%- elif r.actual_total is not none %}clean so far &middot; {{ r.actual_total | pts }}
-            {%- elif r.at_risk %}{{ r.at_risk }} slot{{ '' if r.at_risk == 1 else 's' }} at risk
-            {%- elif r.risk_tier %}nothing to worry about
-            {%- else %}no projection yet{% endif %}
-            {%- if r.lineup and r.lineup.any_started %} &middot; <span style="color: var(--gold);">{{ r.lineup.actual_total | pts }} {{ 'final' if r.lineup.all_final else 'live' }}</span>{% endif %}
+        <div class="sub">{{ status_phrase|trim }}
         </div>
       </div>
       {% endif %}

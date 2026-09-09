@@ -285,6 +285,30 @@ CASES["standings.html::vacant"] = {
 STRICT = True
 
 
+def _check_row_text_single_line(case_name: str, html: str) -> None:
+    """
+    Regression guard for the team-name-wraps-onto-two-lines bug: `.row .nm`
+    and `.row .sub` both have to render `white-space: nowrap` in the compiled
+    <style> block, or a long team name / a crowded status line goes back to
+    wrapping and the whole row looks broken rather than merely truncated.
+
+    A rendered-HTML test cannot measure actual layout (no browser here), but
+    it CAN catch the class of bug that caused this one: someone edits the CSS
+    block and drops the nowrap rule for one of the two selectors while
+    touching the other. Both must be present together.
+    """
+    # There is more than one <style> block on the page (base.html's own plus
+    # board.html's), so scan the raw document rather than assuming the first
+    # <style>...</style> pair is the one that matters.
+    for selector in (".row .nm", ".row .sub"):
+        idx = html.find(selector + " {")
+        rule = html[idx:idx + 600] if idx != -1 else ""
+        check(f"{case_name} :: {selector} stays single-line",
+              idx != -1 and "white-space: nowrap" in rule.split("}", 1)[0],
+              f"{selector} lost its nowrap rule -- long team names/status text "
+              f"will wrap onto a second line and the row will look broken")
+
+
 def main() -> int:
     env = build_env()
     print("templates compile and render")
@@ -298,6 +322,8 @@ def main() -> int:
                 theme=themesmod.DEFAULT_THEME, themes=themesmod.THEMES, **ctx
             )
             check(name, len(html) > 200, f"only {len(html)} chars")
+            if tpl_name == "board.html":
+                _check_row_text_single_line(name, html)
         except Exception as exc:
             check(name, False, f"{type(exc).__name__}: {exc}")
     print()
