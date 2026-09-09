@@ -1,0 +1,93 @@
+{#
+  _lineup.html
+  ============
+  The starting lineup that opens under a team on the Curse board.
+
+  Sibling to ../faab-platform/templates/_lineup.html, deliberately the same
+  shape. The differences are the ones the two games actually differ on: this
+  panel leads with the RISK TIER rather than a defence-vs-position rank,
+  because the tier is this app's own model and the thing a curse is aimed at,
+  and it marks settled geese, because a goose is the entire point here.
+
+  There is no bench. In the FAAB app the bench is information a bettor might
+  want; here a goose can only come from a starter, so a bench toggle would be
+  eleven more rows that cannot affect anything on the screen.
+
+  Everything rendered is precomputed in lineups.py -- whether a game has
+  kicked off, whether a zero is settled, the delta. No logic lives here, so
+  there is exactly one place a live zero can be mistaken for a goose.
+#}
+
+{% macro player_row(p) %}
+<div class="lu-p{% if p.empty %} empty{% endif %}{% if p.is_goose %} goosed{% endif %}">
+  <span class="lu-slot {{ (p.slot or '')|lower }}">{{ p.slot }}</span>
+
+  {% if p.photo %}
+    {# Sleeper 404s headshots for practice-squad call-ups and anyone signed in
+       the last day or so. Dropping the src on error leaves the styled circle
+       rather than a broken-image glyph -- checking first would mean a HEAD
+       request per player per board render. #}
+    <img class="lu-pic" src="{{ p.photo }}" alt="" loading="lazy" decoding="async"
+         onerror="this.classList.add('blank'); this.removeAttribute('src');">
+  {% else %}
+    <span class="lu-pic blank"></span>
+  {% endif %}
+
+  <span class="lu-who">
+    <span class="lu-nm">{{ p.name }}</span>
+    <span class="lu-sub">
+      {%- if p.empty -%}
+        no player started
+      {%- elif not p.nfl_team -%}
+        no game
+      {%- elif not p.opponent -%}
+        {# No opponent for a rostered player means a bye, not an away game --
+           "LAR @ BYE" is nonsense. #}
+        {{ p.nfl_team }} &middot; BYE
+      {%- else -%}
+        {{ p.nfl_team }} {{ p.venue }} {{ p.opponent }}
+        {%- if p.clock %} &middot; {{ p.clock }}{% endif -%}
+      {%- endif -%}
+      {%- if p.reason %} &middot; {{ p.reason }}{% endif -%}
+    </span>
+  </span>
+
+  {% if p.tier %}
+    <span class="lu-tier"><span class="tier trisk-{{ p.tier | tierclass }}">{{ p.tier }}</span></span>
+  {% else %}
+    <span class="lu-tier"><span class="tier tier-unknown">&mdash;</span></span>
+  {% endif %}
+
+  <span class="lu-nums">
+    <span class="lu-proj">{{ '%.1f' % (p.proj or 0) }}</span>
+    {# Before kickoff there is deliberately no number: Sleeper already carries
+       a 0.0 for an unplayed starter and showing it would read as "played,
+       scored nothing" rather than "hasn't played". #}
+    {% if p.live_actual is not none %}
+      <span class="lu-act {% if p.is_goose %}goose{% elif not p.final %}live{% elif (p.delta or 0) >= 0 %}beat{% else %}miss{% endif %}">
+        {{ '%.1f' % p.live_actual }}{% if not p.final %} live{% endif %}
+      </span>
+    {% else %}
+      <span class="lu-act">&mdash;</span>
+    {% endif %}
+  </span>
+</div>
+{% endmacro %}
+
+
+{% macro panel(lu, dom_id) %}
+<div class="lineup" id="{{ dom_id }}" hidden>
+  <div class="lu-head">
+    <span class="ttl">Starting lineup</span>
+    <span class="tot">
+      <b>{{ '%.1f' % lu.proj_total }}</b> proj{% if lu.frozen %} &middot; frozen{% else %} &middot; moves{% endif %}
+      {% if lu.any_started %}
+        &middot; <span class="live"><b>{{ '%.1f' % lu.actual_total }}</b> {{ 'final' if lu.all_final else 'live' }}</span>
+        {% if lu.yet_to_play %}&middot; {{ lu.yet_to_play }} to play{% endif %}
+      {% endif %}
+    </span>
+  </div>
+
+  {% for p in lu.starters %}{{ player_row(p) }}{% endfor %}
+</div>
+{% endmacro %}

@@ -536,6 +536,19 @@ def test_every_screen_renders_over_the_demo():
           "the marked owner rendered without the ribbon")
     check("the marked row wears the flame edge", "row-wrap wrathed" in board)
 
+    # The panels are built from a live Sleeper call, so over the demo feed they
+    # are the one part of the board most likely to come back silently empty --
+    # the same failure the wrath demo shipped with once. Assert real content,
+    # not just that the div exists.
+    panels = board.count('class="lineup"')
+    prows = board.count('class="lu-p')
+    check("THE LINEUP PANELS ARE ON THE BOARD", panels >= 12,
+          f"only {panels} panels for 12 teams")
+    check("and they are populated", prows >= 100,
+          f"{prows} player rows across the board")
+    check("the demo feed's live scores reach the panels", "lu-act live" in board,
+          "every actual rendered as not-yet-played over a mid-Sunday feed")
+
     mine = client.get("/me").get_data(as_text=True)
     check("My Geese shows player photos", "sleepercdn.com/content/nfl/players" in mine)
 

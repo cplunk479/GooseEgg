@@ -59,19 +59,61 @@ ROW = {"roster_id": 1, "team": "The Melange Moguls", "owner_name": "Conner", "av
        "risk_tier": "EXPOSED", "risk_score": 1.36, "risk_rate": 0.30, "at_risk": 2,
        "curses": [{"id": 1, "status": "cast", "caster": "Team 2", "mine": False,
                    "sealed": True, "threshold": 150.0}],
-       "cast_on_them": 1, "blessed": False, "wrathed": False, "is_me": True}
+       "cast_on_them": 1, "blessed": False, "wrathed": False, "is_me": True,
+       "lineup": None}   # filled in below, once LINEUP exists
 
 # A second row with nothing known about it, because "no projection yet" is a
 # real state all week and the board has to render it without a tier.
 BLANK_ROW = {**ROW, "roster_id": 2, "team": "Team 2", "is_me": False, "proj_total": None,
              "risk_tier": None, "risk_score": None, "risk_rate": None, "at_risk": 0,
-             "curses": [], "cast_on_them": 0, "blessed": True, "wrathed": False}
+             "curses": [], "cast_on_them": 0, "blessed": True, "wrathed": False,
+             # No panel: Sleeper can be unreachable, and the board still has to
+             # render a team without one.
+             "lineup": None}
 
 # A third row carrying Goosifer's Wrath. It has to be its own row rather than a
 # flag on BLANK_ROW: the marked branch and the blessed branch are mutually
 # exclusive in the template, so one row can only ever compile one of them.
 WRATHED_ROW = {**BLANK_ROW, "roster_id": 3, "team": "Team 3", "blessed": False,
-               "wrathed": True}
+               "wrathed": True, "lineup": None}
+
+# A lineup panel, in the three states a starter can be in at once: one final
+# and scoring, one live, one that has not kicked off, and one empty slot that
+# is a settled goose. Every branch in _lineup.html has to compile, and the
+# "hasn't played" branch is the one most likely to rot -- it only exists on a
+# Sunday morning.
+LINEUP = {
+    "roster_id": 1, "frozen": True, "proj_total": 153.4, "actual_total": 41.2,
+    "any_started": True, "all_final": False, "yet_to_play": 1, "live_geese": 1,
+    "starters": [
+        {"slot": "QB", "slot_index": 0, "player_id": "p1", "name": "A Player",
+         "position": "QB", "nfl_team": "TB", "opponent": "ATL", "venue": "vs",
+         "clock": "FINAL", "tier": "SOLID", "reason": None, "proj": 18.4,
+         "live_actual": 24.1, "delta": 5.7, "state": "final", "started": True,
+         "final": True, "empty": False, "is_goose": False, "seconds_left": 0,
+         "photo": "https://sleepercdn.com/content/nfl/players/thumb/p1.jpg"},
+        {"slot": "RB", "slot_index": 1, "player_id": "p2", "name": "B Player",
+         "position": "RB", "nfl_team": "KC", "opponent": "DEN", "venue": "@",
+         "clock": "Q3 5:29", "tier": "SHAKY", "reason": "Q", "proj": 11.0,
+         "live_actual": 17.1, "delta": 6.1, "state": "live", "started": True,
+         "final": False, "empty": False, "is_goose": False, "seconds_left": 1200,
+         "photo": None},
+        {"slot": "WR", "slot_index": 2, "player_id": "p3", "name": "C Player",
+         "position": "WR", "nfl_team": "SF", "opponent": None, "venue": None,
+         "clock": None, "tier": None, "reason": None, "proj": 9.2,
+         "live_actual": None, "delta": None, "state": "pre", "started": False,
+         "final": False, "empty": False, "is_goose": False, "seconds_left": None,
+         "photo": "https://sleepercdn.com/content/nfl/players/thumb/p3.jpg"},
+        {"slot": "TE", "slot_index": 3, "player_id": None, "name": "Empty slot",
+         "position": None, "nfl_team": None, "opponent": None, "venue": None,
+         "clock": None, "tier": "COOKED", "reason": "EMPTY SLOT", "proj": 0.0,
+         "live_actual": 0.0, "delta": 0.0, "state": None, "started": True,
+         "final": True, "empty": True, "is_goose": True, "seconds_left": None,
+         "photo": None},
+    ],
+}
+
+ROW["lineup"] = LINEUP
 
 MOST_CURSED = {"roster_id": 3, "team": "Team 3", "avatar": None, "count": 4, "landed": 2}
 CROWN = {"roster_id": 3, "team": "Team 3", "avatar": None, "chugs": 9, "geese": 6,

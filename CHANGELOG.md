@@ -1,5 +1,73 @@
 # Changelog
 
+## [0.9.0] — 2026-09-09
+
+Collapsible starting lineups on the Curse board, and the actuals finally
+refresh.
+
+Ported from the FAAB app's v1.6.0 board expanders, with the differences the two
+games actually differ on.
+
+### Added
+- **Tap a team on the Curse board to open its starting lineup.** Player photo,
+  slot, NFL matchup and clock, the risk tier, the projection and — the part
+  that was missing — what they have actually scored. `lineups.py` +
+  `templates/_lineup.html`, sibling to the same two files in `../faab-platform`
+  so the codebases stay readable side by side.
+- Open panels are remembered in `sessionStorage`, per tab. The numbers inside
+  are live, so the natural thing to do is refresh; losing every open lineup on
+  refresh would make the feature annoying exactly when it is most useful.
+  Opening is not exclusive — comparing two teams before deciding who to curse
+  is the whole point.
+
+### Fixed
+- **The board's actuals were stale all Sunday.** `team_weeks.actual_total` is
+  written once, by `settle_week`, after the last game is over — so from kickoff
+  until Sunday night the Curse board showed a column of nulls while Goose Watch,
+  one tab away, had live scores for the same players. The board now reads
+  actuals live from Sleeper on every render and falls back to the stored value
+  once a week is settled (they agree by then).
+- **The goose count was stale for the same reason** and now counts live. Only
+  FINISHED games count: a zero in the first quarter is Sunday happening, not a
+  goose. That is the same line Goose Watch draws, and drawing it differently
+  here would put a panic count on the board at 1:05pm every week.
+
+### What deliberately does NOT refresh
+Projections, once the week is locked. That number is the bar a curse is graded
+against, and if it can move after the curse was cast the curse was never real.
+`lineups.py` reads projections from the frozen `lineup_slots` snapshot for a
+locked or settled week and from Sleeper for anything earlier, but it reads
+actuals from Sleeper every single time either way. The board also still prefers
+the stored `team_weeks.proj_total` over re-adding the rows, so the figure on
+screen is the exact one a curse is graded against rather than one that could
+differ by a cent.
+
+How fresh "live" is: Sleeper's matchups response is cached in `sleeper.py` for
+`_TTL_MATCHUPS` (120s), so a refresh gets scores at most two minutes old and
+hammering refresh does not hammer Sleeper. Lower that TTL if you want fresher;
+do not add a second uncached fetch.
+
+### Not ported from FAAB, on purpose
+- **No bench toggle.** A goose can only come from a starter, so a bench would
+  be eleven more rows that cannot affect anything on the screen.
+- **No defence-vs-position rank.** The panel leads with the app's own risk tier
+  instead. DvP would mean a weekly stats fetch and a new table to bank it in —
+  worth doing if the tier turns out not to be enough, but not a second ranking
+  system bolted on quietly.
+- **No five-minute auto-reload.** The FAAB board reloads itself; this one
+  refreshes when you refresh it, which is what was asked for.
+
+### Tests
+New `tests/test_lineups.py`, built around the two properties that pull in
+opposite directions: it locks a week, moves Sleeper's projections underneath
+it and demands the panel still shows the frozen number, then moves the scores
+and demands the panel follows with nothing re-locked or re-settled. Plus every
+state a row can be in on one lineup — final and scoring, a final zero (a
+goose), a live Q2 zero (**not** a goose), one yet to kick off (no number at
+all), and an empty slot. `test_demo.py` now asserts the panels actually render
+populated over the demo feed rather than coming back silently empty, which is
+the failure the wrath demo shipped with once. 354 checks.
+
 ## [0.8.0] — 2026-09-09
 
 Goosifer's Wrath, and a real reward for surviving.

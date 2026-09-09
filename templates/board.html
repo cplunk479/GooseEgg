@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
+{% import "_lineup.html" as lineup %}
 {% block title %}Week {{ week }} — Goose Egg{% endblock %}
+
 {% block body %}
 <style>
   .row-wrap { border-bottom: 1px solid var(--border); }
@@ -44,6 +46,78 @@
   }
   .curse-btn:hover { border-color: var(--ember); }
   .curse-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* ------------------------------------------------------------------
+     The collapsible starting lineup. Sibling to the FAAB board's panel,
+     with the risk tier where that one puts a defence-vs-position rank.
+     ------------------------------------------------------------------ */
+  .team-tap {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+    background: none; border: 0; padding: 0; margin: 0;
+    font: inherit; color: inherit; text-align: left; cursor: pointer;
+  }
+  .team-tap .caret {
+    color: var(--text3); font-size: 9px; flex-shrink: 0;
+    transition: transform 0.15s ease;
+  }
+  .team-tap[aria-expanded="true"] .caret { transform: rotate(90deg); }
+  .team-tap .hint {
+    margin-left: 5px; color: var(--text3); font-size: 9px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .lineup {
+    background: var(--surf); border-top: 1px solid var(--border);
+    padding: 2px 0 4px;
+  }
+  .lu-head {
+    display: flex; align-items: baseline; gap: 8px; padding: 7px 14px 5px;
+  }
+  .lu-head .ttl {
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+    font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text3);
+  }
+  .lu-head .tot { margin-left: auto; font-size: 10px; color: var(--text2); }
+  .lu-head .tot b { color: var(--text); font-weight: 700; }
+  .lu-head .tot .live { color: var(--gold); }
+
+  .lu-p { display: flex; align-items: center; gap: 8px; padding: 6px 14px; }
+  .lu-p + .lu-p { border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  .lu-p.empty { opacity: 0.55; }
+  .lu-p.goosed { background: color-mix(in srgb, var(--ember) 10%, transparent); }
+  .lu-slot {
+    width: 30px; flex-shrink: 0; font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 800; font-size: 9.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text3);
+  }
+  .lu-slot.flex, .lu-slot.super_flex { color: var(--brandish, var(--text2)); }
+  .lu-pic {
+    width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+    flex-shrink: 0; background: var(--surf2);
+  }
+  .lu-pic.blank { background: var(--surf2); }
+  .lu-who { flex: 1; min-width: 0; }
+  .lu-nm {
+    display: block; font-size: 12px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lu-sub {
+    display: block; font-size: 9.5px; color: var(--text2); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .lu-tier { width: 66px; flex-shrink: 0; text-align: right; }
+  .lu-tier .tier { font-size: 8.5px; padding: 2px 5px; }
+  .lu-nums { flex-shrink: 0; width: 50px; text-align: right; }
+  .lu-proj {
+    display: block; font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700; font-size: 14px;
+  }
+  .lu-act { display: block; font-size: 9.5px; margin-top: 1px; color: var(--text3); }
+  .lu-act.live  { color: var(--gold); }
+  .lu-act.beat  { color: var(--jade); }
+  .lu-act.miss  { color: var(--text2); }
+  .lu-act.goose { color: var(--flame); font-weight: 700; }
+
   .banner {
     margin: 12px 14px; padding: 12px 14px; border-radius: 12px;
     background: linear-gradient(150deg, color-mix(in srgb, var(--ember) 18%, var(--surf)) 0%, var(--bg) 80%);
@@ -202,16 +276,37 @@
       {% else %}
         <div class="initials">{{ (r.team or '?')[:2] | upper }}</div>
       {% endif %}
+      {% if r.lineup %}
+        {# The team block is the tap target. The curse button beside it stays
+           exactly as tappable as it was -- nothing about casting changes. #}
+        <button type="button" class="team-tap" aria-expanded="false"
+                aria-controls="lu-{{ week }}-{{ r.roster_id }}">
+          <span class="caret">&#9654;</span>
+          <span style="flex: 1; min-width: 0;">
+            <span class="nm" style="display: block;{% if r.is_me %} color: var(--gold);{% endif %}">{{ r.team }}</span>
+            <span class="sub" style="display: block;">
+              {% if r.goose_count %}{{ r.goose_count }} goose{{ '' if r.goose_count == 1 else 's' }}
+            {%- elif r.actual_total is not none %}clean so far &middot; {{ r.actual_total | pts }}
+            {%- elif r.at_risk %}{{ r.at_risk }} slot{{ '' if r.at_risk == 1 else 's' }} at risk
+            {%- elif r.risk_tier %}nothing to worry about
+            {%- else %}no projection yet{% endif %}
+            {%- if r.lineup and r.lineup.any_started %} &middot; <span style="color: var(--gold);">{{ r.lineup.actual_total | pts }} {{ 'final' if r.lineup.all_final else 'live' }}</span>{% endif %}<span class="hint">lineup</span>
+            </span>
+          </span>
+        </button>
+      {% else %}
       <div style="flex: 1; min-width: 0;">
         <div class="nm" {% if r.is_me %}style="color: var(--gold);"{% endif %}>{{ r.team }}</div>
         <div class="sub">
           {% if r.goose_count %}{{ r.goose_count }} goose{{ '' if r.goose_count == 1 else 's' }}
-          {%- elif r.actual_total is not none %}clean week &middot; {{ r.actual_total | pts }}
-          {%- elif r.at_risk %}{{ r.at_risk }} slot{{ '' if r.at_risk == 1 else 's' }} at risk
-          {%- elif r.risk_tier %}nothing to worry about
-          {%- else %}no projection yet{% endif %}
+            {%- elif r.actual_total is not none %}clean so far &middot; {{ r.actual_total | pts }}
+            {%- elif r.at_risk %}{{ r.at_risk }} slot{{ '' if r.at_risk == 1 else 's' }} at risk
+            {%- elif r.risk_tier %}nothing to worry about
+            {%- else %}no projection yet{% endif %}
+            {%- if r.lineup and r.lineup.any_started %} &middot; <span style="color: var(--gold);">{{ r.lineup.actual_total | pts }} {{ 'final' if r.lineup.all_final else 'live' }}</span>{% endif %}
         </div>
       </div>
+      {% endif %}
 
       <div class="c-proj num">{{ r.proj_total | pts }}</div>
 
@@ -273,6 +368,7 @@
         {% endif %}
       </div>
     </div>
+    {% if r.lineup %}{{ lineup.panel(r.lineup, 'lu-' ~ week ~ '-' ~ r.roster_id) }}{% endif %}
   </div>
 {% endfor %}
 
@@ -303,4 +399,63 @@
     </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ---- Roster expanders --------------------------------------------------
+// Opening a lineup is not exclusive: comparing two teams before deciding who
+// to curse is the entire point of the feature.
+//
+// Which panels are open is remembered in sessionStorage, because the numbers
+// in an open panel are live and the natural thing to do with a live number is
+// refresh the page. Losing every open lineup on refresh -- exactly when the
+// actuals make it worth having open -- would make the feature annoying to use.
+// sessionStorage is per-tab and dies with it, which is the right lifetime for
+// "what I had expanded a moment ago". Every access is guarded: private mode
+// and site-data blocking both make these throw rather than return null.
+(function () {
+  var KEY = 'goose.open-lineups';
+
+  function load() {
+    try { return JSON.parse(sessionStorage.getItem(KEY) || '[]') || []; }
+    catch (e) { return []; }
+  }
+  function save(ids) {
+    try { sessionStorage.setItem(KEY, JSON.stringify(ids)); } catch (e) {}
+  }
+  function remember(id, open) {
+    var ids = load().filter(function (x) { return x !== id; });
+    if (open) ids.push(id);
+    save(ids);
+  }
+  function setOpen(btn, panel, open) {
+    panel.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.team-tap');
+    if (!btn) return;
+    var panel = document.getElementById(btn.getAttribute('aria-controls'));
+    if (!panel) return;
+    var open = panel.hidden;
+    setOpen(btn, panel, open);
+    remember(panel.id, open);
+  });
+
+  // Restore after a reload. Ids that no longer exist (the week changed, an
+  // owner was removed) are dropped rather than left to accumulate forever.
+  var kept = [];
+  load().forEach(function (id) {
+    var panel = document.getElementById(id);
+    if (!panel) return;
+    var btn = document.querySelector('[aria-controls="' + id + '"]');
+    if (!btn) return;
+    setOpen(btn, panel, true);
+    kept.push(id);
+  });
+  save(kept);
+})();
+</script>
 {% endblock %}

@@ -75,6 +75,23 @@ separating, move them **in both that file and `goose.py`**.
 | `set_pins.py` | Sets PINs and grants admin. The only thing that makes someone an admin. |
 | `tests/` | `test_goose.py` (tiers + calibration backtest), `test_week_engine.py` (full week, unlock, reset), `test_watch.py`, `test_templates.py`, `test_demo.py` (end-to-end over a stubbed Sleeper), `test_resilience.py` (what the app does when the database says no). Run `./run_tests.sh`. |
 
+## Lineups on the board
+
+Tapping a team on the Curse board opens its starting lineup: photo, slot, NFL
+matchup and clock, risk tier, projection, and what they have actually scored.
+`lineups.py` + `templates/_lineup.html`, ported from the FAAB app's board
+expanders.
+
+Actuals are read live from Sleeper on every render (matchups are cached 120s,
+so a refresh gets scores at most two minutes old). Projections are the
+opposite: once a week locks they come from the frozen `lineup_slots` snapshot
+and never move, because that is the bar a curse is graded against. Before lock
+there is nothing to freeze, so they are live and every screen says so.
+
+The live goose count on a team row only counts FINISHED games. A zero in the
+first quarter is Sunday happening, not a goose — the same line Goose Watch
+draws.
+
 ## The Goose Crown
 
 The drunkest owner wears it. `crown_key()` in `app.py` is the single

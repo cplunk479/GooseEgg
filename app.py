@@ -25,6 +25,7 @@ import db as dbmod
 import demo as demomod
 import filters as filtersmod
 import goose
+import lineups as lineupsmod
 import players_sync
 import settings as settingsmod
 import sleeper
@@ -413,18 +414,54 @@ def board():
             "threshold": c["threshold_proj"],
         })
 
+    # The collapsible starting lineups. Wrapped like every other read on this
+    # page: the panels are a nicety and Sleeper being unreachable should cost
+    # you them, not the board. Rolled back explicitly because build() reads the
+    # database as well as Sleeper, and a failed statement would otherwise leave
+    # the transaction aborted for every query that follows -- the v0.5.0 bug.
+    try:
+        lus = lineupsmod.build(db, LEAGUE_ID, SEASON, week, wk)
+    except Exception:
+        db.rollback()
+        lus = {}
+
     rows = []
     for rid, owner in owners.items():
         t = tw.get(rid) or {}
+        lu = lus.get(rid)
+
+        # Actuals refresh on every load. team_weeks.actual_total is only
+        # written by settle_week, so before Sunday night it is NULL and the
+        # live number out of Sleeper is the only one there is. After settle the
+        # stored value is authoritative and they agree anyway.
+        actual = t.get("actual_total")
+        if actual is None and lu:
+            actual = lu["actual_total"]
+
+        # The projection is the opposite case and must NOT prefer the live
+        # sum: once a week is locked, team_weeks.proj_total is the number
+        # curses are graded against, and the board has to show that exact
+        # figure rather than a re-added one that could differ by a cent.
+        proj = t.get("proj_total")
+        if proj is None and lu:
+            proj = lu["proj_total"]
+
+        # Same for the goose count, and for the same reason. Only games that
+        # have FINISHED count -- a zero in the first quarter is Sunday
+        # happening, not a goose, and Goose Watch draws that line too.
+        geese = t.get("goose_count") or 0
+        if not geese and lu:
+            geese = lu["live_geese"]
         mine = [c for c in curse_by_target.get(rid, []) if c["status"] == "cast"]
         rows.append({
             "roster_id": rid,
             "team": label(owner),
             "owner_name": owner["owner_name"],
             "avatar": owner["avatar"],
-            "proj_total": t.get("proj_total"),
-            "actual_total": t.get("actual_total"),
-            "goose_count": t.get("goose_count") or 0,
+            "proj_total": proj,
+            "actual_total": actual,
+            "goose_count": geese,
+            "lineup": lu,
             "risk_tier": t.get("risk_tier"),
             "risk_score": t.get("risk_score"),
             "risk_rate": goose.TEAM_RATE.get(t.get("risk_tier")),
