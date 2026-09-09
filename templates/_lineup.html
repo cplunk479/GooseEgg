@@ -75,10 +75,19 @@
 {% endmacro %}
 
 
-{% macro panel(lu, dom_id) %}
+{% macro panel(lu, dom_id, team_name=None) %}
 <div class="lineup" id="{{ dom_id }}" hidden>
   <div class="lu-head">
-    <span class="ttl">Starting lineup</span>
+    <span class="lu-titles">
+      {# The collapsed row truncates the team name to keep the board reading
+         as a table -- see the ellipsis rule on .row .nm. The panel underneath
+         it has the full row's width and none of the fixed-column pressure, so
+         this is where the FULL name belongs. Wraps rather than truncates: a
+         two-line name here costs nothing, an invisible one costs the whole
+         point of opening the panel. #}
+      {% if team_name %}<span class="lu-team">{{ team_name }}</span>{% endif %}
+      <span class="ttl">Starting lineup</span>
+    </span>
     <span class="tot">
       <b>{{ '%.1f' % lu.proj_total }}</b> proj{% if lu.frozen %} &middot; frozen{% else %} &middot; moves{% endif %}
       {% if lu.any_started %}

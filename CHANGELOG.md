@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.9.2] — 2026-09-09
+
+Show the full team name when the lineup panel opens.
+
+### Changed
+- **The lineup panel now leads with the full team name**, wrapped rather than
+  truncated. The collapsed row still ellipsizes at ~90px — that stays, it is
+  what keeps the board reading as a table on a phone — but the panel opens
+  into the row's full width with none of that pressure, and a name too long
+  to fit at 22px on the row fits fine wrapped at 15px in the panel. "Starting
+  lineup" moved down to a small label under it rather than being the header.
+- `lineup.panel()` in `_lineup.html` takes an optional third argument,
+  `team_name`; the board passes `r.team`.
+
+Verified with a headless-Chromium render: a 47-character stress-test name that
+ellipsizes to "The Mela…" on the collapsed row renders in full, wrapped across
+two lines, the moment the panel opens.
+
+361 checks pass (no new ones needed — the change is presentational and the
+existing `board.html` render checks already exercise the panel).
+
 ## [0.9.1] — 2026-09-09
 
 Fix the team name wrapping on the Curse board.
