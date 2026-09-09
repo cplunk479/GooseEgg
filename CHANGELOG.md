@@ -84,6 +84,28 @@ Turning `wrath_enabled` off returns the game to 0.7.0 exactly, and there is a
 test that proves it — including that a hand-planted mark is ignored while the
 rule is off.
 
+### Demo mode
+Demo mode now stages Goosifer's Wrath in **all three states**, so the mechanic
+can be confirmed by looking rather than by reading SQL:
+
+- one owner **marked and cursed right now** — already one of the two demo curse
+  targets, so it is the live drama: top of the Curse board, flame edge, ribbon;
+- one who **already paid** — a consumed mark plus the two doubled chugs it
+  produced, still owed, so Admin → Chugs, My Geese and the "wraths paid" count
+  on Standings all have something real in them, and confirming either chug can
+  be watched minting nothing;
+- one carrying a **token earned by surviving** a curse, which is invisible
+  otherwise.
+
+One honest bit of fiction, called out in the code: `active_wrath` requires
+`earned_week < week`, so a **week 1** demo needs a mark earned in "week 0".
+There is no week 0 — but the demo is replaying a week that has not happened
+either, and bending the demo rather than the engine's rule is the right way
+round. Admin renders anything below week 1 as *preseason* instead of a nonsense
+number, and the doubled chugs sit on the current week where they read as debt
+still owed. Every row is `is_demo` flagged and removed on the way out, and
+`clear_props` covers `wraths`.
+
 ### Tests
 `test_week_engine.py` gained five scenarios: arming and doubling (with the
 two-weeks-running case walked end to end, including confirming both doubled
@@ -94,7 +116,12 @@ third board row that is marked (the marked and blessed branches are mutually
 exclusive, so one row can only ever compile one of them), a marked `::locked`
 status tile, three admin mark shapes including the NULL-expiry one, and
 `roster_id` on the Goose Watch fixtures — which the strict-Undefined render
-caught immediately, exactly as designed.
+caught immediately, exactly as designed. `test_demo.py` now asserts both marks
+are staged, that the spent one carries two non-minting chugs, that confirming
+one mints nothing, that the live mark is genuinely cursed this week, and that
+the board actually renders the ribbon and the flame edge — that last check is
+what caught the week-0 problem above, which was otherwise a silently empty
+demo.
 
 Still SQLite, not Postgres. `db_init.py` is additive and safe to re-run, and
 must be re-run on deploy or the `wraths` table will not exist — the 0.5.0

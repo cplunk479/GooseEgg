@@ -387,6 +387,31 @@ def test_demo_props_are_reversible():
 
     made = demomod.seed_props(db, SEASON, WEEK, ROSTERS)
     check("props are seeded", made["ok"] and made["curses"] == 2, str(made))
+
+    # Goosifer's Wrath has to demo in all three states or it cannot be confirmed
+    # by looking, which is the only reason demo mode exists.
+    check("two marks are staged", made["wraths"] == 2, str(made))
+    marks = db.execute("SELECT * FROM wraths ORDER BY id").fetchall()
+    check("one is live", any(w["status"] == "active" for w in marks))
+    check("one has already been spent", any(w["status"] == "consumed" for w in marks))
+    spent = next(w for w in marks if w["status"] == "consumed")
+    doubled = db.execute(
+        "SELECT * FROM chugs WHERE wrath_id = %s", (spent["id"],)).fetchall()
+    check("the spent mark has its doubled chugs", len(doubled) == 2, str(len(doubled)))
+    check("and not one of them mints", not any(c["mints_tokens"] for c in doubled))
+    check("confirming a demo wrath chug mints nothing",
+          engine.confirm_chug(db, SEASON, doubled[0]["id"], 1)["tokens_minted"] == 0)
+
+    live = next(w for w in marks if w["status"] == "active")
+    check("THE LIVE MARK IS ALSO CURSED THIS WEEK -- the whole point of the demo",
+          db.execute("SELECT COUNT(*) AS n FROM curses WHERE is_demo AND week = %s "
+                     "AND target_roster_id = %s", (WEEK, live["roster_id"])
+                     ).fetchone()["n"] == 1)
+    check("it reads as active on the demo week",
+          engine.active_wrath(db, SEASON, live["roster_id"], WEEK) is not None)
+    check("somebody carries a token earned by surviving",
+          db.execute("SELECT COUNT(*) AS n FROM curse_tokens WHERE is_demo AND "
+                     "source = 'curse_survived'").fetchone()["n"] == 1)
     check("every seeded row is flagged as demo",
           db.execute("SELECT COUNT(*) AS n FROM curse_tokens WHERE is_demo"
                      ).fetchone()["n"] == made["tokens"])
@@ -399,7 +424,9 @@ def test_demo_props_are_reversible():
           db.execute("SELECT COUNT(*) AS n FROM curse_tokens").fetchone()["n"] == 1)
     check("no demo row is left anywhere",
           all(db.execute(f"SELECT COUNT(*) AS n FROM {t} WHERE is_demo").fetchone()["n"] == 0
-              for t in ("curses", "curse_tokens", "blessings", "chugs")))
+              for t in ("curses", "curse_tokens", "blessings", "wraths", "chugs")))
+    check("and no mark is left behind",
+          db.execute("SELECT COUNT(*) AS n FROM wraths").fetchone()["n"] == 0)
     db.close()
 
 
@@ -505,6 +532,9 @@ def test_every_screen_renders_over_the_demo():
           any(t in board for t in goose.TEAM_TIERS) and "+2" not in board.split("<style>")[0])
     check("the token artwork is wired up", "img/goothulu.jpg" in board)
     check("the blessing artwork is wired up", "img/goosiah.jpg" in board)
+    check("GOOSIFER'S WRATH IS ON THE DEMO BOARD", "GOOSIFER" in board,
+          "the marked owner rendered without the ribbon")
+    check("the marked row wears the flame edge", "row-wrap wrathed" in board)
 
     mine = client.get("/me").get_data(as_text=True)
     check("My Geese shows player photos", "sleepercdn.com/content/nfl/players" in mine)

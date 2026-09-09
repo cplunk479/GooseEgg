@@ -201,7 +201,10 @@ for tab in ("chugs", "week", "curses", "rules", "demo", "reset"):
         # three shapes the row can take, and the NULL is its own branch.
         "wraths": [{"id": 1, "roster_id": 3, "earned_week": 1, "expires_after": 2,
                     "status": "active", "created_by_admin": False},
-                   {"id": 2, "roster_id": 4, "earned_week": 1, "expires_after": None,
+                   # earned_week 0 is the demo's week-1 mark: it has to render as
+                   # "preseason" rather than "week 0", and that branch only
+                   # compiles if a case actually carries it.
+                   {"id": 2, "roster_id": 4, "earned_week": 0, "expires_after": None,
                     "status": "active", "created_by_admin": True},
                    {"id": 3, "roster_id": 2, "earned_week": 1, "expires_after": 2,
                     "status": "consumed", "created_by_admin": False}],

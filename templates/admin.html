@@ -187,7 +187,7 @@
   <div class="arow">
     <div style="flex: 1; min-width: 0;">
       <div class="anm">{{ label(owners.get(w.roster_id)) }}</div>
-      <div class="asub">Earned week {{ w.earned_week }} &middot;
+      <div class="asub">Earned {% if w.earned_week < 1 %}preseason{% else %}week {{ w.earned_week }}{% endif %} &middot;
         {% if w.expires_after %}covers week {{ w.expires_after }}{% else %}until they survive a curse{% endif %}
         {%- if w.created_by_admin %} &middot; admin{% endif %}</div>
     </div>
@@ -212,8 +212,15 @@
       projections &mdash; only the clock and the points are invented.
       <br><br>
       It works by replacing what Sleeper says, not by writing invented history. The one
-      exception is a handful of curses, tokens and blessings, which have to be real rows
-      to show up at all; every one is flagged and deleted when you switch demo off.
+      exception is a handful of curses, tokens, blessings and marks, which have to be real
+      rows to show up at all; every one is flagged and deleted when you switch demo off.
+      <br><br>
+      <strong style="color: var(--flame);">Goosifer&rsquo;s Wrath is staged in all three
+      states</strong> so you can confirm it by looking: one owner marked <em>and</em> cursed
+      right now (top of the Curse board, flame edge, ribbon), one who already paid &mdash;
+      a spent mark and the doubled chugs it produced, sitting in Chugs above, where
+      confirming either one mints nothing &mdash; and one carrying a token earned by
+      surviving a curse.
       <br><br>
       <strong style="color: var(--gold);">Auto-lock and auto-settle stop while demo mode is
       on.</strong> Four of those games say FINAL, and settling against them would raise real

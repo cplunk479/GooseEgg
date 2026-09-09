@@ -19,7 +19,7 @@ Two pieces, and they are different in kind:
                  as JSON in app_meta and installed into sleeper.py while demo
                  mode is on. Read-only. Switching demo off drops it.
 
-  THE PROPS      A handful of curses, tokens, blessings and chugs, which DO
+  THE PROPS      A handful of curses, tokens, blessings, marks and chugs, which DO
                  have to be real rows because that is where the app keeps them.
                  Every one is stamped is_demo = TRUE and deleted on the way out.
                  That flag is set in exactly one place, here, and is the only
@@ -343,16 +343,70 @@ def seed_props(db, season: int, week: int, roster_ids: list[int]) -> dict:
     )
     made["blessings"] += 1
 
-    # One marked owner, so the wrath badge has somewhere to show up. Deliberately
-    # NOT the blessed one and NOT the same owner as the shield: the demo is
-    # meant to show the two states side by side. earned_week is last week, which
-    # is what makes active_wrath's `earned_week < week` test find it.
+    # ---------------------------------------------------------------- wrath
+    # The whole Goosifer lifecycle, laid out so all three states are on screen
+    # at once and can be confirmed by looking rather than by reading SQL:
+    #
+    #   order[-1]  MARKED AND CURSED RIGHT NOW. It is already one of the two
+    #              curse targets above, so this is the live drama: a marked
+    #              owner with a curse in the air, worth double to whoever cast
+    #              it. Sorts to the top of the Curse board.
+    #   order[-2]  ALREADY PAID. A consumed mark from last week plus the two
+    #              doubled chugs it produced, still owed -- so Admin -> Chugs,
+    #              My Geese and the "wraths paid" count on Standings all have
+    #              something real in them, and confirming either chug can be
+    #              seen minting nothing.
+    #   order[0]   SURVIVED one. Carries a curse_survived token, which is the
+    #              other half of the change and invisible otherwise.
+    #
+    # earned_week has to be strictly BEFORE the demo week or active_wrath will
+    # not find these at all -- that `earned_week < week` test is the rule that
+    # stops a miss doubling the very curse that caused it, and the demo has to
+    # respect it like anything else.
+    #
+    # Which means a week 1 demo needs a mark earned in "week 0". That is the one
+    # honest bit of fiction here: there is no week 0, and the demo is replaying a
+    # week that has not happened either. Admin renders anything below week 1 as
+    # "preseason" rather than a nonsense number. The doubled chugs it produced
+    # sit on the CURRENT week, where they read naturally as debt still owed.
+    prev = week - 1
+    mult = max(1, settingsmod.get_int(db, "wrath_multiplier", 2) or 1)
+
     db.execute(
         "INSERT INTO wraths (season, roster_id, earned_week, expires_after, status, "
         "created_at, is_demo) VALUES (%s, %s, %s, %s, 'active', %s, TRUE)",
-        (season, order[-1], max(1, week - 1), week, now),
+        (season, order[-1], prev, week, now),
     )
     made["wraths"] += 1
+
+    # The already-paid owner needs to be somebody else, which needs a fifth
+    # roster. Below that the demo simply skips this prop rather than stacking
+    # two contradictory states on one owner.
+    payer = order[-2] if len(order) >= 5 and order[-2] != order[2] else None
+    if payer is not None:
+        cur = db.execute(
+            "INSERT INTO wraths (season, roster_id, earned_week, expires_after, status, "
+            "created_at, resolved_at, is_demo) "
+            "VALUES (%s, %s, %s, %s, 'consumed', %s, %s, TRUE) RETURNING id",
+            (season, payer, prev - 1, prev, now, now),
+        )
+        wid = cur.fetchone()["id"]
+        made["wraths"] += 1
+        for _ in range(mult):
+            db.execute(
+                "INSERT INTO chugs (season, week, roster_id, reason, status, "
+                "mints_tokens, wrath_id, created_at, is_demo) "
+                "VALUES (%s, %s, %s, 'curse', 'owed', FALSE, %s, %s, TRUE)",
+                (season, week, payer, wid, now),
+            )
+            made["chugs"] += 1
+
+    db.execute(
+        "INSERT INTO curse_tokens (season, roster_id, earned_week, source, note, "
+        "created_at, is_demo) VALUES (%s, %s, %s, 'curse_survived', 'demo', %s, TRUE)",
+        (season, order[0], max(1, prev), now),
+    )
+    made["tokens"] += 1
 
     for rid in order[3:5]:
         db.execute(

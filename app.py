@@ -1022,8 +1022,9 @@ def admin_demo():
             demomod.install(db)
             flash(f"Demo mode on — week {week}, {payload['starters']} starters, "
                   f"{len(payload['gooses'])} planted gooses, "
-                  f"{props.get('curses', 0)} curse(s) in play. Nothing real was touched.",
-                  "success")
+                  f"{props.get('curses', 0)} curse(s) in play, "
+                  f"{props.get('wraths', 0)} mark(s) of Goosifer's Wrath. "
+                  f"Nothing real was touched.", "success")
         except Exception as exc:
             db.rollback()
             settingsmod.set_bool(db, demomod.FLAG, False)
