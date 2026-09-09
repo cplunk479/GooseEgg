@@ -1,5 +1,106 @@
 # Changelog
 
+## [0.8.0] — 2026-09-09
+
+Goosifer's Wrath, and a real reward for surviving.
+
+Until now a curse was a coin flip with no memory: you missed, you drank one,
+and Monday it was over. Two rules give the week after a miss some weight.
+
+### Added
+- **Goosifer's Wrath.** A curse that LANDS marks its target. The following
+  week, a curse that lands on a marked owner costs them `wrath_multiplier`
+  chugs (default 2) and mints them **no tokens at all** — the punishment is not
+  the extra beer, it is drinking twice and coming away with nothing to curse
+  anybody back with. New `wraths` table, shaped deliberately like `blessings`
+  so the two mirror each other everywhere: earned in week N, read in week N+1,
+  gone after.
+
+  Two rules keep it honest, both in `resolve_curses`:
+  - the mark is read with `earned_week < week`, so the miss that arms a mark
+    can never also be doubled by it. You get the week in between to fix it.
+  - it never stacks past the multiplier. Landing on a marked owner consumes the
+    mark and arms exactly one fresh one, so two bad weeks costs double and five
+    bad weeks still costs double.
+
+  A blocked curse changes nothing — the blessing ate it, so nothing was proved
+  and nothing was missed, and a mark survives being blocked.
+
+- **Surviving a curse now pays.** The blessing alone expires unused most weeks,
+  and beating the frozen bar with Goothulu on you is the hardest thing an owner
+  does all week. Surviving now also mints a curse token (`survived_curse_mints_token`,
+  on by default) and burns off any mark you were carrying. It is minted at
+  settle rather than on a confirmed chug, because there is no chug to confirm —
+  the one exception to "you earn tokens by drinking".
+
+- **The mark is visible on every screen**, which is the entire point of it:
+  a marked owner is the best target on the board and everybody should be able
+  to see that at a glance on a phone.
+  - **Curse** — marked rows sort to the top, wear the hottest row wash on the
+    board with a flame left edge, carry a ribbon spelling out the multiplier,
+    and get a pulsing sigil in the Marks column. The status tile swaps the
+    blessing token for a wrath tile when you are the one marked (the two states
+    are mutually exclusive by construction, so there was no reason to show two
+    tiles one of which is always dark).
+  - **My Geese** — a banner saying what it costs and when it lifts, plus a pill.
+  - **Standings** — a badge on marked owners and a "n wraths paid" count.
+  - **Goose Watch** — a badge beside the owner on every row, wrapped in a
+    try/except: Watch must render on a Sunday whatever the database is doing.
+  - **Admin → Curses** — the full mark list with lift buttons, and Mark / Lift
+    controls. An admin mark arms from *next* week, the same offset a landed
+    curse produces; marking somebody mid-week would grade a week they are
+    already playing against a rule that was not in force at kickoff.
+
+- `_macros.html` gained `sigil()` — a horned flame, drawn in SVG rather than
+  shipped as artwork, so it recolours per theme (ember on Goothulu, blaze on
+  Duck Blind, white-hot on Goosifer) and there is one definition of the mark
+  rather than four that can drift. Deliberately not a goose: Goosiah and
+  Goothulu are the two birds, and at 22px a third mascot competes with them.
+
+### Changed
+- `chugs` gained `mints_tokens` and `wrath_id`. The multiplier raises REAL chug
+  rows rather than a count on one row, so the weekly cap, the Goose Crown and
+  the admin confirm list all see them without a special case — a doubled curse
+  eats two of `max_chugs_per_week` and rolls forward like anything else.
+  `mints_tokens` defaults TRUE, so every chug already in the table keeps
+  earning exactly what it earned before; `confirm_chug` treats NULL as TRUE for
+  the same reason.
+- `reset_week` and `reset_season` unwind marks: ones armed by the week are
+  deleted, ones the week consumed or lifted go back to active — keyed off the
+  week's curses through `wraths.resolved_by`, the same way a consumed blessing
+  already was. `curse_survived` joined the token sources a reset claws back.
+- Demo mode seeds one marked owner, so the badge has somewhere to appear.
+
+### Settings
+`wrath_enabled` (on), `wrath_multiplier` (2), `wrath_persists` (off) and
+`survived_curse_mints_token` (on), all on the Admin → Rules screen.
+`wrath_persists` on keeps the mark until the owner survives a curse instead of
+ageing out after a week — worth knowing that with `max_curses_per_target` at 1,
+a marked owner nobody targets can wear it indefinitely. Rows keep the rule they
+were written under; flipping the setting does not rewrite a mark somebody is
+already carrying.
+
+Turning `wrath_enabled` off returns the game to 0.7.0 exactly, and there is a
+test that proves it — including that a hand-planted mark is ignored while the
+rule is off.
+
+### Tests
+`test_week_engine.py` gained five scenarios: arming and doubling (with the
+two-weeks-running case walked end to end, including confirming both doubled
+chugs and checking nothing was minted), ageing out versus being lifted by
+surviving, the persistence setting over four quiet weeks, the kill switch, and
+a week reset that has to put a consumed mark back. `test_templates.py` gained a
+third board row that is marked (the marked and blessed branches are mutually
+exclusive, so one row can only ever compile one of them), a marked `::locked`
+status tile, three admin mark shapes including the NULL-expiry one, and
+`roster_id` on the Goose Watch fixtures — which the strict-Undefined render
+caught immediately, exactly as designed.
+
+Still SQLite, not Postgres. `db_init.py` is additive and safe to re-run, and
+must be re-run on deploy or the `wraths` table will not exist — the 0.5.0
+lesson, which shipped a migration without running it and made a live feature
+look like it had never been built.
+
 ## [0.7.0] — 2026-09-07
 
 Navigation, the crown, and where a theme is chosen.

@@ -390,6 +390,17 @@ def board():
     ).fetchall()
     blessed = {b["roster_id"] for b in blessings}
 
+    # Goosifer's marks. Same shape as blessings, and read with the same
+    # `earned_week < week` rule the engine uses -- a mark armed by last
+    # night's settle is exactly what this board is here to advertise.
+    wraths = db.execute(
+        "SELECT * FROM wraths WHERE season = %s AND status = 'active' "
+        "AND earned_week < %s AND (expires_after IS NULL OR expires_after >= %s)",
+        (SEASON, week, week),
+    ).fetchall()
+    wrathed = {w["roster_id"] for w in wraths}
+    wrath_mult = max(1, settingsmod.get_int(db, "wrath_multiplier", 2) or 1)
+
     curse_by_target: dict = {}
     for c in curses:
         visible = (not sealed) or c["caster_roster_id"] == me["roster_id"]
@@ -421,6 +432,7 @@ def board():
             "curses": curse_by_target.get(rid, []),
             "cast_on_them": len(mine),
             "blessed": rid in blessed,
+            "wrathed": rid in wrathed,
             "is_me": rid == me["roster_id"],
         })
 
@@ -428,6 +440,7 @@ def board():
     # "we don't know yet" is not the top of a risk board.
     rows.sort(key=lambda r: (
         r["risk_tier"] is None,
+        not r["wrathed"],
         -goose.TEAM_INDEX.get(r["risk_tier"], -1),
         -(r["risk_score"] or 0),
     ))
@@ -450,6 +463,7 @@ def board():
     return render_template(
         "board.html", week=week, wk=wk, rows=rows, my_row=my_row,
         my_tokens=len(my_tokens), my_blessed=me["roster_id"] in blessed,
+        my_wrathed=me["roster_id"] in wrathed, wrath_mult=wrath_mult,
         weeks=weeks, sealed=sealed, preview=preview,
         most_cursed=most_cursed(db, owners), crown=crown,
         can_cast=wk["status"] == "open" and len(my_tokens) > 0,
@@ -571,6 +585,8 @@ def my_geese():
         preview=preview, team_risk=team_risk, proj_total=proj_total,
         tokens=len(engine.unspent_tokens(db, SEASON, rid)),
         blessing=engine.active_blessing(db, SEASON, rid, week),
+        wrath=engine.active_wrath(db, SEASON, rid, week),
+        wrath_mult=max(1, settingsmod.get_int(db, "wrath_multiplier", 2) or 1),
         label=label,
     )
 
@@ -647,8 +663,21 @@ def goose_watch():
                    f"that is back. Nothing is lost — the week is graded from final "
                    f"scores when it settles.")
 
+    # Marked owners, for the badge. Wrapped: Goose Watch is the one screen that
+    # must render on a Sunday whatever the database is doing, and a badge is
+    # never worth a 500.
+    try:
+        wrathed = {r["roster_id"] for r in db.execute(
+            "SELECT roster_id FROM wraths WHERE season = %s AND status = 'active' "
+            "AND earned_week < %s AND (expires_after IS NULL OR expires_after >= %s)",
+            (SEASON, week, week),
+        ).fetchall()}
+    except Exception:
+        db.rollback()
+        wrathed = set()
+
     return render_template("watch.html", week=week, data=data, problem=problem,
-                           me_roster=me["roster_id"])
+                           me_roster=me["roster_id"], wrathed=wrathed)
 
 
 
@@ -689,6 +718,10 @@ def standings():
         blessings = db.execute(
             "SELECT COUNT(*) AS n FROM blessings WHERE season = %s AND roster_id = %s", (SEASON, rid)
         ).fetchone()["n"]
+        wraths = db.execute(
+            "SELECT COUNT(*) AS n FROM wraths WHERE season = %s AND roster_id = %s "
+            "AND status = 'consumed'", (SEASON, rid),
+        ).fetchone()["n"]
 
         rows.append({
             "roster_id": rid,
@@ -702,6 +735,8 @@ def standings():
             "curses_landed": cast_by.get("landed", 0),
             "curses_failed": cast_by.get("survived", 0) + cast_by.get("blocked", 0),
             "blessings": blessings,
+            "wraths_cashed": wraths,
+            "wrathed": engine.active_wrath(db, SEASON, rid, active_week(db)) is not None,
             "tokens": len(engine.unspent_tokens(db, SEASON, rid)),
             "is_me": rid == me["roster_id"],
         })
@@ -745,6 +780,9 @@ def admin():
     blessings = db.execute(
         "SELECT * FROM blessings WHERE season = %s ORDER BY earned_week DESC, id DESC LIMIT 40", (SEASON,)
     ).fetchall()
+    wraths = db.execute(
+        "SELECT * FROM wraths WHERE season = %s ORDER BY earned_week DESC, id DESC LIMIT 40", (SEASON,)
+    ).fetchall()
 
     wk = engine.ensure_week(db, SEASON, week)
     db.commit()
@@ -754,7 +792,8 @@ def admin():
     payload = sleeper.demo_payload()
     return render_template(
         "admin.html", tab=tab, owners=owners, label=label, chugs=chugs,
-        weeks=weeks, curses=curses, blessings=blessings, active=week, wk=wk,
+        weeks=weeks, curses=curses, blessings=blessings, wraths=wraths,
+        active=week, wk=wk,
         rules=settingsmod.all_tunables(db), now=int(time.time()),
         lock_epoch=lock_epoch, end_epoch=end_epoch,
         demo_on=bool(payload), demo=payload,
@@ -879,6 +918,23 @@ def admin_curse():
         )
         db.commit()
         flash("Blessing granted for next week.", "success")
+    elif action == "mark-wrath":
+        rid = request.form.get("roster_id", type=int)
+        # earned_week is THIS week, so the mark reads live from next week on --
+        # the same offset a landed curse produces. Marking somebody and having
+        # it bite them in the week they are already playing would grade a week
+        # against a rule that was not in force when it started.
+        if engine.arm_wrath(db, SEASON, rid, week, by_admin=True):
+            db.commit()
+            flash("Marked with Goosifer's Wrath from next week.", "success")
+        else:
+            flash("That owner is already marked for next week.", "error")
+    elif action == "lift-wrath":
+        rid = request.form.get("roster_id", type=int)
+        n = engine.lift_wraths(db, SEASON, rid)
+        db.commit()
+        flash(f"{n} mark{'' if n == 1 else 's'} lifted." if n else "No active mark.",
+              "success" if n else "error")
     elif action == "revoke-blessing":
         bid = request.form.get("blessing_id", type=int)
         db.execute(

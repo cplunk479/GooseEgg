@@ -101,8 +101,10 @@
       <div class="st-nm" {% if r.is_me %}style="color: var(--gold);"{% endif %}>{{ r.team }}</div>
       {% if r.owed %}<div class="pill pill-owed">{{ r.owed }} owed</div>{% endif %}
       {% if r.tokens %}<div class="pill pill-cursed">{{ r.tokens }}</div>{% endif %}
+      {% if r.wrathed %}<span class="wrath-badge">{{ ui.sigil(12) }} wrath</span>{% endif %}
     </div>
-    <div class="st-sub">{{ r.geese }} geese &middot; {{ r.from_curses }} from curses &middot; {{ r.blessings }} blessing{{ '' if r.blessings == 1 else 's' }}</div>
+    <div class="st-sub">{{ r.geese }} geese &middot; {{ r.from_curses }} from curses &middot; {{ r.blessings }} blessing{{ '' if r.blessings == 1 else 's' }}
+      {%- if r.wraths_cashed %} &middot; <span style="color: var(--flame);">{{ r.wraths_cashed }} wrath{{ '' if r.wraths_cashed == 1 else 's' }} paid</span>{% endif %}</div>
   </div>
   <div class="st-big {% if pod %}ink{{ pod }}{% endif %}" style="width: 44px; text-align: center; {% if not pod %}color: {% if r.chugs >= 4 %}var(--ember){% else %}var(--text){% endif %};{% endif %}">{{ r.chugs }}</div>
   <div class="bar" style="width: 42px; text-align: right; font-weight: 700; font-size: 13px; color: var(--text2);">{{ r.curses_landed }}-{{ r.curses_failed }}</div>

@@ -3,8 +3,15 @@
 A weekly drinking game with a sportsbook front end. Any player in your starting
 lineup who scores **0 or less** is a *goose*, and the owner chugs. Completed
 chugs mint **Goothulu's Curse** tokens, which you spend on another owner: miss
-your locked projection while cursed and you chug too; beat it and you earn
-**Goosiah's Blessing**, one week of immunity.
+your locked projection while cursed and you chug too, and **Goosifer's Wrath**
+marks you for next week; beat it and you earn **Goosiah's Blessing**, one week
+of immunity, plus a curse token of your own.
+
+Carrying the mark is the expensive part. A curse that lands on a marked owner
+costs them **two** chugs instead of one, and those chugs mint **nothing** — the
+one way to drink in this app and come away with no ammunition. Every screen
+shows who is marked, which is the point: they are the best target on the board
+and everybody can see it.
 
 Sister app to `../faab-platform` (Bring Dat Wood), deliberately a separate
 service and repo — that one is live mid-season for a different league and
@@ -152,9 +159,18 @@ proves it isn't.
 ## Rules that are settings, not code
 
 `points_per_chug`, `weekly_stipend`, `curse_stacking`, `max_curses_per_target`,
-`max_chugs_per_week`, `landed_curse_mints_point`, `curses_sealed_until_lock`,
-`safe_pour_allowed`. All live in `app_meta` and are editable from Admin. The
-league will want to tune these in week 4; nobody should be redeploying to do it.
+`max_chugs_per_week`, `landed_curse_mints_point`, `survived_curse_mints_token`,
+`curses_sealed_until_lock`, `safe_pour_allowed`, `wrath_enabled`,
+`wrath_multiplier`, `wrath_persists`. All live in `app_meta` and are editable
+from Admin. The league will want to tune these in week 4; nobody should be
+redeploying to do it.
+
+`wrath_persists` is the one worth a sentence. Off (the default) the mark lives
+one week exactly like a blessing and re-arms on each new miss. On, it stays
+until the owner survives a curse — which, with `max_curses_per_target` at 1,
+can leave a marked owner nobody bothers to target stuck wearing it. Rows keep
+whatever rule they were written under; flipping the setting does not rewrite a
+mark somebody is already carrying.
 
 ## Inherited lessons
 

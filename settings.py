@@ -24,8 +24,27 @@ max_curses_per_target     int   How many curses one owner can absorb in a week.
 max_chugs_per_week        int   Cap per owner; the remainder rolls forward as
                                 debt instead of piling into one sitting.
 landed_curse_mints_point  bool  Does a landed curse mint a token for the caster.
+survived_curse_mints_token bool Does surviving a curse mint a token for the target.
+                                On by default: beating the bar under a curse is
+                                the hardest thing an owner does all week, and
+                                the blessing alone expires unused most weeks.
 curses_sealed_until_lock  bool  Hide curse targets from the league until kickoff.
 safe_pour_allowed         bool  Allow a non-alcoholic equivalent to settle a chug.
+
+Goosifer's Wrath
+----------------
+wrath_enabled             bool  Arm the mark at all. Off returns the game to
+                                v0.7 behaviour exactly.
+wrath_multiplier          int   Chugs a landed curse costs a marked owner. 2 =
+                                double. Those chugs mint NO tokens, whatever
+                                points_per_chug says -- the punishment is that
+                                the beer buys you nothing.
+wrath_persists            bool  OFF (default): the mark lives one week, exactly
+                                like a blessing, and re-arms on each new miss.
+                                ON: it stays until the owner survives a curse.
+                                Rows already written keep the rule they were
+                                written under; flipping this does not rewrite
+                                a mark somebody is already carrying.
 
 Season shape
 ------------
@@ -51,6 +70,11 @@ DEFAULTS = {
     "max_curses_per_target": "1",
     "max_chugs_per_week": "3",
     "landed_curse_mints_point": "1",
+    "survived_curse_mints_token": "1",
+    # Goosifer's Wrath
+    "wrath_enabled": "1",
+    "wrath_multiplier": "2",
+    "wrath_persists": "0",
     "curses_sealed_until_lock": "1",
     "safe_pour_allowed": "1",
     # season shape
@@ -71,6 +95,10 @@ TUNABLE = [
     ("max_curses_per_target", "int", "Curses one owner can absorb in a week"),
     ("max_chugs_per_week", "int", "Chug cap per owner; the rest rolls forward"),
     ("landed_curse_mints_point", "bool", "A landed curse mints a token for the caster"),
+    ("survived_curse_mints_token", "bool", "Surviving a curse mints a token for the target"),
+    ("wrath_enabled", "bool", "Goosifer's Wrath: a landed curse marks the target"),
+    ("wrath_multiplier", "int", "Chugs a landed curse costs a marked owner (they mint nothing)"),
+    ("wrath_persists", "bool", "The mark stays until they survive a curse, not just one week"),
     ("curses_sealed_until_lock", "bool", "Hide curse targets until Sunday kickoff"),
     ("safe_pour_allowed", "bool", "Allow a non-alcoholic pour to settle a chug"),
 ]

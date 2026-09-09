@@ -294,7 +294,8 @@ def _fake_points(pid, meta, proj_stats, scoring, state_by_team, goose_ids) -> fl
 def seed_props(db, season: int, week: int, roster_ids: list[int]) -> dict:
     """
     Give the week enough curse traffic to be worth looking at: a few tokens
-    held, two curses cast, one blessing shielding, one chug still owed.
+    held, two curses cast, one blessing shielding, one owner walking around
+    under Goosifer's Wrath, one chug still owed.
 
     Deterministic from the roster list so the same league always demos the
     same way, and every row carries is_demo = TRUE.
@@ -306,7 +307,7 @@ def seed_props(db, season: int, week: int, roster_ids: list[int]) -> dict:
     order = rosters[:]
     rng.shuffle(order)
     now = int(time.time())
-    made = {"tokens": 0, "curses": 0, "blessings": 0, "chugs": 0}
+    made = {"tokens": 0, "curses": 0, "blessings": 0, "wraths": 0, "chugs": 0}
 
     holders = order[:4]
     for i, rid in enumerate(holders):
@@ -342,6 +343,17 @@ def seed_props(db, season: int, week: int, roster_ids: list[int]) -> dict:
     )
     made["blessings"] += 1
 
+    # One marked owner, so the wrath badge has somewhere to show up. Deliberately
+    # NOT the blessed one and NOT the same owner as the shield: the demo is
+    # meant to show the two states side by side. earned_week is last week, which
+    # is what makes active_wrath's `earned_week < week` test find it.
+    db.execute(
+        "INSERT INTO wraths (season, roster_id, earned_week, expires_after, status, "
+        "created_at, is_demo) VALUES (%s, %s, %s, %s, 'active', %s, TRUE)",
+        (season, order[-1], max(1, week - 1), week, now),
+    )
+    made["wraths"] += 1
+
     for rid in order[3:5]:
         db.execute(
             "INSERT INTO chugs (season, week, roster_id, reason, status, created_at, is_demo) "
@@ -362,7 +374,7 @@ def clear_props(db) -> dict:
     global _parsed
     _parsed = None
     removed = {}
-    for table in ("curses", "blessings", "chugs", "curse_tokens"):
+    for table in ("curses", "blessings", "wraths", "chugs", "curse_tokens"):
         removed[table] = db.execute(f"DELETE FROM {table} WHERE is_demo").rowcount
     db.commit()
     return removed

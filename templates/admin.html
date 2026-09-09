@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 {% block title %}Admin — Goose Egg{% endblock %}
 {% block body %}
 <style>
@@ -138,7 +139,14 @@
     <select class="mini" name="roster_id">{% for rid, o in owners.items() %}<option value="{{ rid }}">{{ label(o) }}</option>{% endfor %}</select>
     <button class="btn-sm" name="action" value="grant-token" type="submit">Give token</button>
     <button class="btn-sm" name="action" value="grant-blessing" type="submit">Give blessing</button>
+    <button class="btn-sm warn" name="action" value="mark-wrath" type="submit">Mark (wrath)</button>
+    <button class="btn-sm" name="action" value="lift-wrath" type="submit">Lift wrath</button>
   </form>
+  <div class="caption" style="padding: 0 14px 14px; line-height: 1.55;">
+    A mark added here is armed from <strong style="color: var(--text);">next</strong> week, the same
+    offset a landed curse produces &mdash; marking someone mid-week would grade a week they are
+    already playing against a rule that was not in force when it kicked off.
+  </div>
 
   <div style="padding: 12px 14px 6px; border-top: 6px solid var(--surf);"><div class="overline">Curses</div></div>
   {% for c in curses %}
@@ -172,6 +180,27 @@
     </form>
     {% endif %}
   </div>
+  {% endfor %}
+
+  <div style="padding: 14px 14px 6px; border-top: 6px solid var(--surf);"><div class="overline">Goosifer&rsquo;s Wrath</div></div>
+  {% for w in wraths %}
+  <div class="arow">
+    <div style="flex: 1; min-width: 0;">
+      <div class="anm">{{ label(owners.get(w.roster_id)) }}</div>
+      <div class="asub">Earned week {{ w.earned_week }} &middot;
+        {% if w.expires_after %}covers week {{ w.expires_after }}{% else %}until they survive a curse{% endif %}
+        {%- if w.created_by_admin %} &middot; admin{% endif %}</div>
+    </div>
+    <div class="pill {% if w.status == 'active' %}pill-wrath{% else %}pill-sealed{% endif %}">{{ w.status }}</div>
+    {% if w.status == 'active' %}
+    <form method="POST" action="{{ url_for('admin_curse') }}">
+      <input type="hidden" name="roster_id" value="{{ w.roster_id }}">
+      <button class="btn-sm warn" name="action" value="lift-wrath" type="submit">Lift</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="arow"><div class="asub" style="padding: 2px 0;">Nobody is marked.</div></div>
   {% endfor %}
 
 {% elif tab == 'demo' %}

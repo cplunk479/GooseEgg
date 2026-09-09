@@ -227,6 +227,38 @@ TABLES = [
         resolved_at       BIGINT
     )
     """,
+
+    # ------------------------------------------------------- Goosifer's Wrath
+    # The mirror image of a blessing, and deliberately shaped like one.
+    # A curse that LANDS in week N marks the target: in week N+1 a curse that
+    # lands on them costs double and mints them nothing. Missing twice running
+    # is what the league wanted punished, so the mark is armed by the miss and
+    # spent by the next one.
+    #
+    # status: 'active' -> 'consumed' | 'expired' | 'lifted'
+    #   consumed = it doubled a landed curse
+    #   expired  = the week passed without anyone cashing it in
+    #   lifted   = the owner survived a curse and burned it off early
+    #
+    # expires_after is NULL when the commissioner has turned `wrath_persists`
+    # on: the mark then stays until they survive a curse rather than aging out.
+    # A NULL here is the whole difference between the two rules, which is why
+    # it is nullable and blessings.expires_after is not.
+    """
+    CREATE TABLE IF NOT EXISTS wraths (
+        id                SERIAL PRIMARY KEY,
+        season            INTEGER NOT NULL,
+        roster_id         INTEGER NOT NULL,
+        earned_week       INTEGER NOT NULL,
+        expires_after     INTEGER,
+        status            TEXT NOT NULL DEFAULT 'active',
+        caused_by         INTEGER,
+        resolved_by       INTEGER,
+        created_by_admin  BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at        BIGINT,
+        resolved_at       BIGINT
+    )
+    """,
 ]
 
 # Additive column migrations, run after the CREATE TABLEs on every init. This
@@ -253,6 +285,14 @@ MIGRATIONS = [
     "ALTER TABLE blessings    ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE chugs        ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE owners       ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT 'goothulu'",
+    # v0.8 -- Goosifer's Wrath. mints_tokens is what makes a doubled chug
+    # worthless to its owner: the multiplier raises real chug rows so the cap,
+    # the standings and the admin list all see them, and this flag is the one
+    # thing that stops confirming them from minting tokens. Defaulting TRUE
+    # keeps every chug already in the table earning exactly what it did before.
+    "ALTER TABLE chugs  ADD COLUMN IF NOT EXISTS mints_tokens BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE chugs  ADD COLUMN IF NOT EXISTS wrath_id INTEGER",
+    "ALTER TABLE wraths ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 INDEXES = [
@@ -263,11 +303,12 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_curses_week ON curses (season, week)",
     "CREATE INDEX IF NOT EXISTS idx_curses_target ON curses (season, target_roster_id)",
     "CREATE INDEX IF NOT EXISTS idx_blessings_owner ON blessings (season, roster_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_wraths_owner ON wraths (season, roster_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_lineup_week ON lineup_slots (season, week)",
 ]
 
 DROP_ORDER = [
-    "blessings", "curses", "curse_tokens", "chugs", "gooses",
+    "wraths", "blessings", "curses", "curse_tokens", "chugs", "gooses",
     "team_weeks", "lineup_slots", "weeks", "players_cache", "owners", "app_meta",
 ]
 

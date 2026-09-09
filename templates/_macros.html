@@ -3,7 +3,8 @@
 
   The crown is here rather than copy-pasted because Standings and the Curse
   tab both wear it, and a crown that is subtly different on two screens reads
-  as two different honours.
+  as two different honours. Goosifer's sigil is here for the same reason: it
+  now appears on four screens and it has to mean the same thing on all four.
 #}
 
 {% macro crown(w=34) %}
@@ -16,5 +17,23 @@
   <circle cx="3" cy="3.9" r="2" fill="var(--halo)"/>
   <circle cx="17" cy="1.7" r="2.2" fill="var(--halo)"/>
   <circle cx="31" cy="3.9" r="2" fill="var(--halo)"/>
+</svg>
+{% endmacro %}
+
+{% macro sigil(w=22) %}
+{#- Goosifer's sigil: a horned flame. Drawn rather than an image because there
+    is no Goosifer artwork in the package yet and because, drawn, it recolours
+    with the theme -- ember on Goothulu, blaze on Duck Blind, white-hot on
+    Goosifer itself. Deliberately NOT a goose: Goosiah and Goothulu are the two
+    birds, and the mark should read as what happened to you, not as a third
+    mascot competing with them at 22px. -#}
+<svg class="sigil" width="{{ w }}" height="{{ (w * 1.08) | round | int }}"
+     viewBox="0 0 24 26" fill="none" aria-hidden="true">
+  <path d="M3.4 3.2c2.1.6 3.7 2.1 4.6 4.3M20.6 3.2c-2.1.6-3.7 2.1-4.6 4.3"
+        stroke="var(--flame)" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M12 2.4c1.3 3.6.4 5.5-1.4 7.6C8.3 12.6 5.9 14.6 5.9 18a6.1 6.1 0 0 0 12.2 0c0-2.4-1-4-2.3-5.7-.5 1.1-1.2 1.8-2.1 2.2.7-3.8-.4-8.7-1.7-12.1z"
+        fill="var(--ember)" stroke="var(--flame)" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="M12 12.6c1.6 1.9 2.5 3.3 2.5 5a2.5 2.5 0 0 1-5 0c0-1.4 1-2.7 2.5-5z"
+        fill="var(--flame)"/>
 </svg>
 {% endmacro %}

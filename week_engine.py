@@ -32,13 +32,33 @@ settle_week(week)
       2. curses      -- blessings block, then the frozen threshold decides
       3. chugs       -- raised from both, then capped and rolled
       4. blessings   -- expire what went unused
+      5. wraths      -- expire what went uncashed
     Curses are resolved before chugs are capped so that a curse chug is subject
-    to the same weekly cap as a goose chug.
+    to the same weekly cap as a goose chug -- including a doubled one, which is
+    two real rows and therefore eats two of the cap.
 
-Tokens are NOT minted here. The rule is one token per chug you actually
-*perform*, so minting happens when an admin confirms the chug (confirm_chug
-below), not when the chug is raised. You earn the curse by drinking, not by
-owing.
+Goosifer's Wrath
+----------------
+A curse that LANDS marks its target. The mark is read the following week and
+only the following week (or until they survive one, if the commissioner has
+turned persistence on): a curse that lands on a marked owner costs them
+wrath_multiplier chugs instead of one, and those chugs mint no tokens at all.
+
+Two rules keep it honest and both live in resolve_curses:
+  - a mark is read with `earned_week < week`, so the miss that arms a mark can
+    never also be doubled by it. You get the week in between to fix your team.
+  - it never stacks past the multiplier. Landing on a marked owner consumes
+    the mark and arms exactly one fresh one, so two bad weeks costs double and
+    five bad weeks still costs double.
+
+Tokens are NOT minted here, with one exception. The rule is one token per chug
+you actually *perform*, so minting happens when an admin confirms the chug
+(confirm_chug below), not when the chug is raised. You earn the curse by
+drinking, not by owing.
+
+The exception is surviving a curse. There is no chug to confirm -- the owner
+did the hard thing and beat the bar with Goothulu on them -- so that token is
+minted at settle, alongside the blessing.
 """
 from __future__ import annotations
 
@@ -95,6 +115,66 @@ def active_blessing(db, season: int, roster_id: int, week: int):
         "AND status = 'active' AND expires_after >= %s ORDER BY id LIMIT 1",
         (season, roster_id, week),
     ).fetchone()
+
+
+def active_wrath(db, season: int, roster_id: int, week: int):
+    """
+    The mark covering THIS week, if there is one.
+
+    `earned_week < week` is load-bearing: settle arms a mark in the same pass
+    that resolves curses, and without it the very curse that armed the mark
+    would be doubled by it. The mark is a warning about next week, not a
+    surcharge on this one.
+
+    A NULL expires_after means the commissioner turned on wrath_persists when
+    this mark was written: it does not age out, it waits to be survived.
+    """
+    return db.execute(
+        "SELECT * FROM wraths WHERE season = %s AND roster_id = %s AND status = 'active' "
+        "AND earned_week < %s AND (expires_after IS NULL OR expires_after >= %s) "
+        "ORDER BY id LIMIT 1",
+        (season, roster_id, week, week),
+    ).fetchone()
+
+
+def arm_wrath(db, season: int, roster_id: int, week: int, curse_id=None,
+              by_admin: bool = False) -> int | None:
+    """
+    Mark an owner for next week. Returns the new row id, or None if they are
+    already marked from this same week -- two curses landing on one owner in
+    one week is still one mark, because the mark is about the NEXT week and
+    there is only one of those.
+    """
+    already = db.execute(
+        "SELECT id FROM wraths WHERE season = %s AND roster_id = %s AND status = 'active' "
+        "AND earned_week = %s LIMIT 1",
+        (season, roster_id, week),
+    ).fetchone()
+    if already:
+        return None
+    persists = settingsmod.get_bool(db, "wrath_persists", False)
+    cur = db.execute(
+        "INSERT INTO wraths (season, roster_id, earned_week, expires_after, status, "
+        "caused_by, created_by_admin, created_at) "
+        "VALUES (%s, %s, %s, %s, 'active', %s, %s, %s) RETURNING id",
+        (season, roster_id, week, None if persists else week + 1,
+         curse_id, by_admin, now()),
+    )
+    return cur.fetchone()["id"]
+
+
+def lift_wraths(db, season: int, roster_id: int, curse_id=None) -> int:
+    """
+    Burn the mark off. Surviving a curse does this -- you proved the point, so
+    you are not still carrying the last miss. Clears persistent marks too,
+    which is the only way one of those ever ends.
+    """
+    cur = db.execute(
+        "UPDATE wraths SET status = 'lifted', resolved_by = %s, resolved_at = %s "
+        "WHERE season = %s AND roster_id = %s AND status = 'active'",
+        (curse_id, now(), season, roster_id),
+    )
+    return cur.rowcount
 
 
 def mint_token(db, season: int, roster_id: int, week: int, source: str, note: str = None) -> int:
@@ -374,11 +454,13 @@ def unlock_week(db, season: int, week: int, admin_roster_id: int = None) -> dict
 # settle
 # --------------------------------------------------------------------------
 
-def raise_chug(db, season: int, week: int, roster_id: int, reason: str, ref_id=None) -> int:
+def raise_chug(db, season: int, week: int, roster_id: int, reason: str, ref_id=None,
+               mints_tokens: bool = True, wrath_id=None) -> int:
     cur = db.execute(
-        "INSERT INTO chugs (season, week, roster_id, reason, ref_id, status, created_at) "
-        "VALUES (%s, %s, %s, %s, %s, 'owed', %s) RETURNING id",
-        (season, week, roster_id, reason, ref_id, now()),
+        "INSERT INTO chugs (season, week, roster_id, reason, ref_id, status, "
+        "mints_tokens, wrath_id, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, 'owed', %s, %s, %s) RETURNING id",
+        (season, week, roster_id, reason, ref_id, mints_tokens, wrath_id, now()),
     )
     return cur.fetchone()["id"]
 
@@ -474,6 +556,7 @@ def settle_week(db, league_id: str, season: int, week: int, force: bool = False)
     resolved = resolve_curses(db, season, week)
     rolled = apply_weekly_cap(db, season, week)
     expired = expire_blessings(db, season, week)
+    wraths_expired = expire_wraths(db, season, week)
 
     db.execute(
         "UPDATE weeks SET status = 'final', settled_at = %s WHERE season = %s AND week = %s",
@@ -482,7 +565,8 @@ def settle_week(db, league_id: str, season: int, week: int, force: bool = False)
     db.commit()
     return {
         "ok": True, "week": week, "gooses": goose_count,
-        "chugs_rolled": rolled, "blessings_expired": expired, **resolved,
+        "chugs_rolled": rolled, "blessings_expired": expired,
+        "wraths_expired": wraths_expired, **resolved,
     }
 
 
@@ -491,8 +575,15 @@ def resolve_curses(db, season: int, week: int) -> dict:
     A cast curse ends one of three ways:
       blocked  -- the target held a blessing. It fires by itself and is spent.
       landed   -- the target finished under the frozen projection. They chug,
-                  and the caster may mint a token for it.
-      survived -- the target beat it and earns a blessing for next week.
+                  the caster may mint a token for it, and they are marked with
+                  Goosifer's Wrath for next week. If they were ALREADY marked,
+                  the chug is multiplied and mints them nothing.
+      survived -- the target beat it. They earn a blessing for next week, a
+                  curse token to spend at their whim, and any mark they were
+                  carrying is burned off.
+
+    A blocked curse does neither: the blessing ate it, so nothing was proved
+    and nothing was missed. A mark survives being blocked.
 
     A curse with no threshold (the week was never locked, so nothing was
     frozen) is left alone rather than graded against a number that does not
@@ -500,7 +591,14 @@ def resolve_curses(db, season: int, week: int) -> dict:
     admin can void it.
     """
     mints = settingsmod.get_bool(db, "landed_curse_mints_point", True)
-    out = {"curses_blocked": 0, "curses_landed": 0, "curses_survived": 0, "curses_unresolved": 0}
+    survivor_mints = settingsmod.get_bool(db, "survived_curse_mints_token", True)
+    wrath_on = settingsmod.get_bool(db, "wrath_enabled", True)
+    multiplier = max(1, settingsmod.get_int(db, "wrath_multiplier", 2) or 1)
+    out = {
+        "curses_blocked": 0, "curses_landed": 0, "curses_survived": 0,
+        "curses_unresolved": 0, "wraths_armed": 0, "wraths_cashed": 0,
+        "wraths_lifted": 0, "survivor_tokens": 0,
+    }
 
     curses = db.execute(
         "SELECT * FROM curses WHERE season = %s AND week = %s AND status = 'cast' ORDER BY id",
@@ -541,10 +639,29 @@ def resolve_curses(db, season: int, week: int) -> dict:
                 "UPDATE curses SET status = 'landed', actual_total = %s, resolved_at = %s WHERE id = %s",
                 (actual, now(), c["id"]),
             )
-            raise_chug(db, season, week, target, "curse", c["id"])
+            # Were they already marked? Read it BEFORE arming a new one, or
+            # this week's miss would double the very chug that caused it.
+            mark = active_wrath(db, season, target, week) if wrath_on else None
+            n = multiplier if mark else 1
+            for _ in range(n):
+                raise_chug(db, season, week, target, "curse", c["id"],
+                           mints_tokens=(mark is None),
+                           wrath_id=(mark["id"] if mark else None))
+            if mark:
+                db.execute(
+                    "UPDATE wraths SET status = 'consumed', resolved_by = %s, "
+                    "resolved_at = %s WHERE id = %s",
+                    (c["id"], now(), mark["id"]),
+                )
+                out["wraths_cashed"] += 1
             if mints:
                 mint_token(db, season, c["caster_roster_id"], week, "curse_landed",
                            f"curse landed on roster {target}, week {week}")
+            # And the miss marks them again for next week -- consumed or not,
+            # a miss is a miss. arm_wrath refuses a second mark for the same
+            # week by itself, so this never stacks past the multiplier.
+            if wrath_on and arm_wrath(db, season, target, week, c["id"]):
+                out["wraths_armed"] += 1
             out["curses_landed"] += 1
         else:
             db.execute(
@@ -556,8 +673,31 @@ def resolve_curses(db, season: int, week: int) -> dict:
                 "VALUES (%s, %s, %s, %s, 'active', %s)",
                 (season, target, week, week + 1, now()),
             )
+            # Beating the bar with Goothulu on you is the hardest thing an
+            # owner does all week, and the blessing alone expires unused most
+            # weeks. The token is the part they actually get to spend.
+            if survivor_mints:
+                mint_token(db, season, target, week, "curse_survived",
+                           f"survived a curse, week {week}")
+                out["survivor_tokens"] += 1
+            out["wraths_lifted"] += lift_wraths(db, season, target, c["id"])
             out["curses_survived"] += 1
     return out
+
+
+def expire_wraths(db, season: int, week: int) -> int:
+    """
+    A mark nobody cashed in is gone. Rows written with a NULL expires_after
+    (wrath_persists was on) are skipped on purpose -- those end by being
+    survived, not by the calendar.
+    """
+    cur = db.execute(
+        "UPDATE wraths SET status = 'expired', resolved_at = %s "
+        "WHERE season = %s AND status = 'active' AND expires_after IS NOT NULL "
+        "AND expires_after < %s",
+        (now(), season, week),
+    )
+    return cur.rowcount
 
 
 def expire_blessings(db, season: int, week: int) -> int:
@@ -655,6 +795,11 @@ def confirm_chug(db, season: int, chug_id: int, admin_roster_id: int, safe_pour:
     """
     Admin marks a chug performed. THIS is where a curse token is minted -- the
     rule is one token per chug you actually do, so owing a chug earns nothing.
+
+    Except under Goosifer's Wrath. A chug raised by a curse that landed on a
+    marked owner carries mints_tokens = FALSE, and confirming it pays out
+    nothing whatever points_per_chug says. That is the entire punishment: you
+    drink twice and you come away with nothing to curse anybody back with.
     """
     c = db.execute("SELECT * FROM chugs WHERE id = %s AND season = %s", (chug_id, season)).fetchone()
     if c is None:
@@ -668,11 +813,16 @@ def confirm_chug(db, season: int, chug_id: int, admin_roster_id: int, safe_pour:
         "UPDATE chugs SET status = 'paid', safe_pour = %s, confirmed_by = %s, confirmed_at = %s WHERE id = %s",
         (safe_pour, admin_roster_id, now(), chug_id),
     )
+    # A column added in v0.8: rows written before it exist read as None, and
+    # None has to mean "mints", not "does not". Everything that came before
+    # Goosifer earned its token.
+    mints = c["mints_tokens"] is None or bool(c["mints_tokens"])
     per = settingsmod.get_int(db, "points_per_chug", 1) or 0
-    for _ in range(max(0, per)):
+    minted = max(0, per) if mints else 0
+    for _ in range(minted):
         mint_token(db, season, c["roster_id"], c["week"], "chug", f"chug #{chug_id}")
     db.commit()
-    return {"ok": True, "tokens_minted": max(0, per)}
+    return {"ok": True, "tokens_minted": minted, "wrath": not mints}
 
 
 def unconfirm_chug(db, season: int, chug_id: int) -> dict:
@@ -731,12 +881,24 @@ def reset_week(db, season: int, week: int) -> dict:
     # around; clawing it back would rewrite their week too.
     counts["tokens"] = db.execute(
         "DELETE FROM curse_tokens WHERE season = %s AND earned_week = %s "
-        "AND spent_on IS NULL AND source IN ('chug', 'curse_landed')",
+        "AND spent_on IS NULL AND source IN ('chug', 'curse_landed', 'curse_survived')",
         (season, week),
     ).rowcount
     counts["blessings"] = db.execute(
         "DELETE FROM blessings WHERE season = %s AND earned_week = %s", (season, week)
     ).rowcount
+    counts["wraths"] = db.execute(
+        "DELETE FROM wraths WHERE season = %s AND earned_week = %s", (season, week)
+    ).rowcount
+    # A mark this week's settle spent or burned off goes back to active, the
+    # same way a consumed blessing does. Both are keyed off this week's curses,
+    # which is why wraths carries resolved_by at all.
+    db.execute(
+        "UPDATE wraths SET status = 'active', resolved_by = NULL, resolved_at = NULL "
+        "WHERE season = %s AND status IN ('consumed', 'lifted') "
+        "AND resolved_by IN (SELECT id FROM curses WHERE season = %s AND week = %s)",
+        (season, season, week),
+    )
     # A blessing this week's settle CONSUMED goes back to active.
     db.execute(
         "UPDATE blessings SET status = 'active', consumed_by = NULL, resolved_at = NULL "
@@ -778,12 +940,12 @@ def reset_week(db, season: int, week: int) -> dict:
 
 def reset_season(db, season: int) -> dict:
     """
-    Wipe every week of a season: gooses, chugs, curses, blessings and tokens
-    all the way back to an empty board. Owners, PINs and commissioner rules
+    Wipe every week of a season: gooses, chugs, curses, blessings, wraths and
+    tokens all the way back to an empty board. Owners, PINs and commissioner rules
     survive -- resetting a test season should not cost anyone their login.
     """
     counts = {}
-    for table in ("blessings", "curses", "curse_tokens", "chugs", "gooses",
+    for table in ("wraths", "blessings", "curses", "curse_tokens", "chugs", "gooses",
                   "team_weeks", "lineup_slots"):
         counts[table] = db.execute(
             f"DELETE FROM {table} WHERE season = %s", (season,)).rowcount

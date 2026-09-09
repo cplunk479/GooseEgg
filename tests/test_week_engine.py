@@ -575,6 +575,184 @@ def test_reset_week_unwinds_everything() -> None:
     db.close()
 
 
+def _curse_and_settle(db, fs, week, caster, target, miss: bool):
+    """Open, curse, lock, set the target's score either side of the bar, settle."""
+    engine.open_week(db, LEAGUE, SEASON, week, 1)
+    engine.mint_token(db, SEASON, caster, week, "admin", "t")
+    db.commit()
+    engine.cast_curse(db, SEASON, week, caster, target)
+    engine.lock_week(db, LEAGUE, SEASON, week)
+    frozen = db.execute(
+        "SELECT threshold_proj FROM curses WHERE week = %s AND target_roster_id = %s "
+        "ORDER BY id DESC LIMIT 1", (week, target),
+    ).fetchone()["threshold_proj"]
+    fs.totals[target] = (frozen or 0) + (-40 if miss else 25)
+    return engine.settle_week(db, LEAGUE, SEASON, week)
+
+
+def _base_db():
+    fs = FakeSleeper()
+    db = build_db(fs)
+    for rid in range(1, 5):
+        s, p = lineup(*([10.0] * 11))
+        fs.starters[rid], fs.points[rid] = s, p
+        fs.totals[rid] = sum(p)
+    return fs, db
+
+
+def test_wrath_arms_and_doubles() -> None:
+    print("\nGoosifer's Wrath: a miss marks you, the next miss costs double")
+    fs, db = _base_db()
+
+    r = _curse_and_settle(db, fs, 1, caster=1, target=2, miss=True)
+    check("the curse lands", r["curses_landed"] == 1, str(r))
+    check("landing arms a mark", r["wraths_armed"] == 1, str(r))
+    check("nothing is cashed on the week that armed it", r["wraths_cashed"] == 0, str(r))
+    check("week 1 costs exactly one chug",
+          db.execute("SELECT COUNT(*) AS n FROM chugs WHERE roster_id = 2 AND reason = 'curse'"
+                     ).fetchone()["n"] == 1)
+    check("that chug still mints",
+          bool(db.execute("SELECT mints_tokens FROM chugs WHERE roster_id = 2 LIMIT 1"
+                          ).fetchone()["mints_tokens"]))
+
+    w = db.execute("SELECT * FROM wraths WHERE roster_id = 2").fetchone()
+    check("the mark covers next week only", w["earned_week"] == 1 and w["expires_after"] == 2)
+    check("it does not read on the week it was armed",
+          engine.active_wrath(db, SEASON, 2, 1) is None)
+    check("it does read on the following week",
+          engine.active_wrath(db, SEASON, 2, 2) is not None)
+
+    # week 2: cursed again, misses again -> doubled and worthless
+    r = _curse_and_settle(db, fs, 2, caster=1, target=2, miss=True)
+    check("the mark is cashed", r["wraths_cashed"] == 1, str(r))
+    check("a fresh mark is armed by the new miss", r["wraths_armed"] == 1, str(r))
+
+    wk2 = db.execute(
+        "SELECT * FROM chugs WHERE roster_id = 2 AND week = 2 AND reason = 'curse'"
+    ).fetchall()
+    check("week 2 costs two chugs", len(wk2) == 2, str(len(wk2)))
+    check("neither of them mints", not any(c["mints_tokens"] for c in wk2))
+    check("both point at the mark that doubled them",
+          all(c["wrath_id"] == w["id"] for c in wk2), str([c["wrath_id"] for c in wk2]))
+
+    before = len(engine.unspent_tokens(db, SEASON, 2))
+    for c in wk2:
+        out = engine.confirm_chug(db, SEASON, c["id"], admin_roster_id=1)
+        check("confirming a wrath chug mints nothing", out["tokens_minted"] == 0, str(out))
+    check("drinking twice under the wrath earns nothing at all",
+          len(engine.unspent_tokens(db, SEASON, 2)) == before)
+
+    check("the old mark is spent, not still active",
+          db.execute("SELECT status FROM wraths WHERE id = %s", (w["id"],)
+                     ).fetchone()["status"] == "consumed")
+    check("it never stacks past double",
+          db.execute("SELECT COUNT(*) AS n FROM wraths WHERE roster_id = 2 AND status = 'active'"
+                     ).fetchone()["n"] == 1)
+    db.close()
+
+
+def test_wrath_expires_and_is_lifted() -> None:
+    print("\nthe mark ages out on its own, and surviving burns it off early")
+    fs, db = _base_db()
+    _curse_and_settle(db, fs, 1, caster=1, target=2, miss=True)
+
+    # Week 2 passes with nobody cursing roster 2 at all.
+    engine.open_week(db, LEAGUE, SEASON, 2, 1)
+    engine.lock_week(db, LEAGUE, SEASON, 2)
+    engine.settle_week(db, LEAGUE, SEASON, 2)
+    check("an uncashed mark survives its own week",
+          db.execute("SELECT status FROM wraths WHERE roster_id = 2").fetchone()["status"] == "active")
+
+    engine.open_week(db, LEAGUE, SEASON, 3, 1)
+    engine.lock_week(db, LEAGUE, SEASON, 3)
+    r = engine.settle_week(db, LEAGUE, SEASON, 3)
+    check("and is gone the week after", r["wraths_expired"] == 1, str(r))
+    check("nothing is left to cash", engine.active_wrath(db, SEASON, 2, 4) is None)
+
+    # Now mark roster 3 and have them SURVIVE the next curse.
+    _curse_and_settle(db, fs, 4, caster=1, target=3, miss=True)
+    check("roster 3 is marked", engine.active_wrath(db, SEASON, 3, 5) is not None)
+    r = _curse_and_settle(db, fs, 5, caster=1, target=3, miss=False)
+    check("surviving lifts the mark", r["wraths_lifted"] == 1, str(r))
+    check("nothing is carried into week 6", engine.active_wrath(db, SEASON, 3, 6) is None)
+    check("surviving mints a token for the survivor", r["survivor_tokens"] == 1, str(r))
+    check("the survivor can actually spend it",
+          any(t["source"] == "curse_survived" for t in engine.unspent_tokens(db, SEASON, 3)))
+    check("and still gets the blessing",
+          db.execute("SELECT COUNT(*) AS n FROM blessings WHERE roster_id = 3 AND status = 'active'"
+                     ).fetchone()["n"] == 1)
+    db.close()
+
+
+def test_wrath_persists_setting() -> None:
+    print("\nwrath_persists: the mark waits to be survived instead of ageing out")
+    fs, db = _base_db()
+    db.execute("UPDATE app_meta SET value = '1' WHERE key = 'wrath_persists'")
+    db.commit()
+
+    _curse_and_settle(db, fs, 1, caster=1, target=2, miss=True)
+    w = db.execute("SELECT * FROM wraths WHERE roster_id = 2").fetchone()
+    check("a persistent mark has no expiry at all", w["expires_after"] is None)
+
+    for week in (2, 3, 4):
+        engine.open_week(db, LEAGUE, SEASON, week, 1)
+        engine.lock_week(db, LEAGUE, SEASON, week)
+        engine.settle_week(db, LEAGUE, SEASON, week)
+    check("three quiet weeks do not shift it",
+          engine.active_wrath(db, SEASON, 2, 5) is not None)
+
+    r = _curse_and_settle(db, fs, 5, caster=1, target=2, miss=False)
+    check("only surviving ends it", r["wraths_lifted"] == 1, str(r))
+    check("and then it is really gone", engine.active_wrath(db, SEASON, 2, 6) is None)
+    db.close()
+
+
+def test_wrath_can_be_switched_off() -> None:
+    print("\nwrath_enabled off returns the game to v0.7 exactly")
+    fs, db = _base_db()
+    db.execute("UPDATE app_meta SET value = '0' WHERE key = 'wrath_enabled'")
+    db.commit()
+
+    r = _curse_and_settle(db, fs, 1, caster=1, target=2, miss=True)
+    check("no mark is armed", r["wraths_armed"] == 0, str(r))
+    check("no mark exists",
+          db.execute("SELECT COUNT(*) AS n FROM wraths").fetchone()["n"] == 0)
+
+    # Hand-plant one anyway; with the rule off it must not be read.
+    db.execute(
+        "INSERT INTO wraths (season, roster_id, earned_week, expires_after, status, created_at) "
+        "VALUES (%s, %s, %s, %s, 'active', 0)", (SEASON, 2, 1, 2),
+    )
+    db.commit()
+    r = _curse_and_settle(db, fs, 2, caster=1, target=2, miss=True)
+    check("a planted mark is ignored while the rule is off", r["wraths_cashed"] == 0, str(r))
+    check("the chug is single and still mints",
+          db.execute("SELECT COUNT(*) AS n FROM chugs WHERE roster_id = 2 AND week = 2 "
+                     "AND reason = 'curse' AND mints_tokens").fetchone()["n"] == 1)
+    db.close()
+
+
+def test_reset_week_unwinds_wrath() -> None:
+    print("\nresetting a week puts the mark back exactly as it was")
+    fs, db = _base_db()
+    _curse_and_settle(db, fs, 1, caster=1, target=2, miss=True)
+    w1 = db.execute("SELECT * FROM wraths WHERE roster_id = 2").fetchone()
+    _curse_and_settle(db, fs, 2, caster=1, target=2, miss=True)
+    check("week 2 armed a second mark",
+          db.execute("SELECT COUNT(*) AS n FROM wraths WHERE roster_id = 2").fetchone()["n"] == 2)
+
+    r = engine.reset_week(db, SEASON, 2)
+    check("the mark week 2 armed is deleted", r["wraths"] == 1, str(r))
+    check("the mark week 2 CASHED is active again",
+          db.execute("SELECT status FROM wraths WHERE id = %s", (w1["id"],)
+                     ).fetchone()["status"] == "active")
+    check("the doubled chugs are gone",
+          db.execute("SELECT COUNT(*) AS n FROM chugs WHERE week = 2").fetchone()["n"] == 0)
+    check("week 1's mark is untouched by a week 2 reset",
+          engine.active_wrath(db, SEASON, 2, 2) is not None)
+    db.close()
+
+
 def main() -> int:
     test_full_week()
     test_blessing_blocks()
@@ -585,6 +763,11 @@ def main() -> int:
     test_curse_needs_open_week()
     test_unlock_holds_the_frozen_threshold()
     test_reset_week_unwinds_everything()
+    test_wrath_arms_and_doubles()
+    test_wrath_expires_and_is_lifted()
+    test_wrath_persists_setting()
+    test_wrath_can_be_switched_off()
+    test_reset_week_unwinds_wrath()
     print()
     if failures:
         print(f"{len(failures)} FAILED: " + ", ".join(failures))

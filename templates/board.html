@@ -6,6 +6,13 @@
   .row-wrap { border-bottom: 1px solid var(--border); }
   .row-wrap.cursed  { background: linear-gradient(160deg, color-mix(in srgb, var(--ember) 14%, var(--surf)) 0%, var(--bg) 72%); }
   .row-wrap.blessed { background: linear-gradient(160deg, color-mix(in srgb, var(--blessing) 12%, var(--surf)) 0%, var(--bg) 72%); }
+  /* A marked owner outranks both: it is the one row on this board that is
+     worth more to curse than any other, so it gets the hottest wash and a
+     left edge you can find without reading anything. */
+  .row-wrap.wrathed {
+    background: linear-gradient(160deg, color-mix(in srgb, var(--flame) 17%, var(--surf)) 0%, var(--bg) 76%);
+    box-shadow: inset 3px 0 0 var(--flame);
+  }
   .ribbon {
     display: flex; align-items: center; gap: 6px; padding: 6px 14px 1px;
     font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
@@ -21,7 +28,7 @@
      Widths are fixed so the whole board reads as a table on a 390px phone
      rather than twelve differently-shaped rows. */
   .c-proj  { width: 46px; flex-shrink: 0; text-align: right; }
-  .c-marks { width: 34px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; }
+  .c-marks { width: 40px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
   .c-risk  { width: 74px; flex-shrink: 0; text-align: right; }
   .c-curse { width: 34px; flex-shrink: 0; display: flex; justify-content: flex-end; }
   .num { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 15px; }
@@ -68,9 +75,20 @@
       <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_tokens %}var(--ember){% else %}var(--text3){% endif %};">CURSES</div>
     </div>
     <div style="text-align: center;">
-      <img class="tok tok-42 {% if my_blessed %}tok--shield{% else %}tok--off{% endif %}"
-           src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="Goosiah's blessing">
-      <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_blessed %}var(--gold){% else %}var(--text3){% endif %};">{% if my_blessed %}SHIELDED{% else %}NO BLESSING{% endif %}</div>
+      {# A blessing and a mark are mutually exclusive by construction: surviving
+         a curse grants the one and lifts the other in the same statement. So
+         this tile shows whichever state you are actually in rather than two
+         tiles, one of which is always dark. #}
+      {% if my_wrathed %}
+        <div class="wrath-mark" style="width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--flame); background: color-mix(in srgb, var(--flame) 16%, var(--surf2));">
+          {{ ui.sigil(24) }}
+        </div>
+        <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: var(--flame);">WRATH</div>
+      {% else %}
+        <img class="tok tok-42 {% if my_blessed %}tok--shield{% else %}tok--off{% endif %}"
+             src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="Goosiah's blessing">
+        <div class="bar" style="font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; margin-top: 6px; color: {% if my_blessed %}var(--gold){% else %}var(--text3){% endif %};">{% if my_blessed %}SHIELDED{% else %}NO BLESSING{% endif %}</div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -150,7 +168,13 @@
 
 {% for r in rows %}
   {% set cast = r.curses | selectattr('status', 'equalto', 'cast') | list %}
-  <div class="row-wrap {% if cast %}cursed{% elif r.blessed %}blessed{% endif %}">
+  <div class="row-wrap {% if r.wrathed %}wrathed{% elif cast %}cursed{% elif r.blessed %}blessed{% endif %}">
+    {% if r.wrathed %}
+      <div class="ribbon" style="color: var(--flame);">
+        {{ ui.sigil(15) }}
+        GOOSIFER&rsquo;S WRATH &middot; A LANDED CURSE COSTS THEM {{ wrath_mult }}&times; &middot; NO TOKENS
+      </div>
+    {% endif %}
     {% for c in cast %}
       <div class="ribbon" style="color: var(--ember);">
         <img class="tok tok-17 {% if c.sealed %}tok--sealed{% else %}tok--curse{% endif %}" src="{{ url_for('static', filename='img/goothulu.jpg') }}" alt="">
@@ -165,7 +189,7 @@
         {% endif %}
       </div>
     {% endfor %}
-    {% if not cast and r.blessed %}
+    {% if not cast and not r.wrathed and r.blessed %}
       <div class="ribbon" style="color: var(--gold);">
         <img class="tok tok-17 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="">
         GOOSIAH&rsquo;S BLESSING &middot; SHIELDED THIS WEEK
@@ -205,6 +229,11 @@
         {% elif r.blessed %}
           <img class="tok tok-22 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}"
                alt="Blessed" title="Goosiah's blessing — shielded this week">
+        {% endif %}
+        {% if r.wrathed %}
+          <span class="wrath-mark" title="Goosifer's Wrath — a curse that lands on {{ r.team }} costs them {{ wrath_mult }} chugs and mints them nothing">
+            {{ ui.sigil(19) }}
+          </span>
         {% endif %}
       </div>
 
@@ -262,8 +291,11 @@
   {% elif my_tokens %}
     <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5;">
       Tap the Goothulu icon in any row to spend a token on that owner. Miss the locked projection
-      and they chug. Beat it and they earn Goosiah&rsquo;s blessing &mdash; shielded for one week.
+      and they chug, and Goosifer marks them for next week. Beat it and they earn Goosiah&rsquo;s
+      blessing <em>and</em> a curse token of their own.
       {% if sealed %} Targets stay sealed until Sunday kickoff.{% endif %}
+      <span style="color: var(--flame);">Anyone already carrying the mark chugs {{ wrath_mult }}&times;
+      and earns nothing for it &mdash; spend your token there.</span>
     </div>
   {% else %}
     <div style="font-size: 10.5px; color: var(--text2); line-height: 1.5;">

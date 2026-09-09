@@ -59,13 +59,19 @@ ROW = {"roster_id": 1, "team": "The Melange Moguls", "owner_name": "Conner", "av
        "risk_tier": "EXPOSED", "risk_score": 1.36, "risk_rate": 0.30, "at_risk": 2,
        "curses": [{"id": 1, "status": "cast", "caster": "Team 2", "mine": False,
                    "sealed": True, "threshold": 150.0}],
-       "cast_on_them": 1, "blessed": False, "is_me": True}
+       "cast_on_them": 1, "blessed": False, "wrathed": False, "is_me": True}
 
 # A second row with nothing known about it, because "no projection yet" is a
 # real state all week and the board has to render it without a tier.
 BLANK_ROW = {**ROW, "roster_id": 2, "team": "Team 2", "is_me": False, "proj_total": None,
              "risk_tier": None, "risk_score": None, "risk_rate": None, "at_risk": 0,
-             "curses": [], "cast_on_them": 0, "blessed": True}
+             "curses": [], "cast_on_them": 0, "blessed": True, "wrathed": False}
+
+# A third row carrying Goosifer's Wrath. It has to be its own row rather than a
+# flag on BLANK_ROW: the marked branch and the blessed branch are mutually
+# exclusive in the template, so one row can only ever compile one of them.
+WRATHED_ROW = {**BLANK_ROW, "roster_id": 3, "team": "Team 3", "blessed": False,
+               "wrathed": True}
 
 MOST_CURSED = {"roster_id": 3, "team": "Team 3", "avatar": None, "count": 4, "landed": 2}
 CROWN = {"roster_id": 3, "team": "Team 3", "avatar": None, "chugs": 9, "geese": 6,
@@ -75,15 +81,17 @@ CASES = {
     "login.html": {"owners": [{"roster_id": 1, "owner_name": "a", "team_name": "T"}], "me": None},
     "error.html": {"code": 404, "message": "nope", "me": ME},
     "board.html": {
-        "me": ME, "week": 1, "wk": WK, "rows": [ROW, BLANK_ROW], "my_row": ROW,
-        "my_tokens": 2, "my_blessed": False, "weeks": [1], "sealed": True,
+        "me": ME, "week": 1, "wk": WK, "rows": [ROW, BLANK_ROW, WRATHED_ROW], "my_row": ROW,
+        "my_tokens": 2, "my_blessed": False, "my_wrathed": False, "wrath_mult": 2,
+        "weeks": [1], "sealed": True,
         "preview": True, "can_cast": True, "most_cursed": MOST_CURSED, "crown": CROWN,
         "targets": [BLANK_ROW],
     },
     "board.html::locked": {
         "_template": "board.html",
-        "me": ME, "week": 1, "wk": {**WK, "status": "locked"}, "rows": [ROW, BLANK_ROW],
-        "my_row": ROW, "my_tokens": 0, "my_blessed": True, "weeks": [1], "sealed": False,
+        "me": ME, "week": 1, "wk": {**WK, "status": "locked"}, "rows": [ROW, BLANK_ROW, WRATHED_ROW],
+        "my_row": ROW, "my_tokens": 0, "my_blessed": True, "my_wrathed": True,
+        "wrath_mult": 2, "weeks": [1], "sealed": False,
         "preview": False, "can_cast": False, "most_cursed": None, "crown": None,
         "targets": [BLANK_ROW],
     },
@@ -91,6 +99,8 @@ CASES = {
         "me": ME, "week": 1, "wk": WK, "owners": OWNERS,
         "label": lambda o: (o or {}).get("team_name", "?"),
         "preview": True, "proj_total": 153.4,
+        "wrath": {"id": 1, "earned_week": 1, "expires_after": 2, "status": "active"},
+        "wrath_mult": 2,
         "team_risk": {"tier": "EXPOSED", "score": 1.36, "rate": 0.30, "at_risk": 2,
                       "worst": "COOKED", "counts": {}},
         # One live-preview row (the shape project_week returns) and one frozen
@@ -117,32 +127,32 @@ CASES = {
     },
     "watch.html": {
         "me": ME, "week": 3, "problem": None,
-        "me_roster": 1,
+        "me_roster": 1, "wrathed": {1},
         "data": {
             "week": 3, "total_goosed": 2, "total_danger": 1,
             "games_live": 5, "games_final": 3, "games_total": 13, "feed_ok": True,
             "drinkers": [{"roster_id": 1, "owner": "Team 1", "avatar": None, "goosed": 2}],
-            "goosed": [{"name": "A Player", "owner": "Team 1", "slot": "FLEX", "position": "WR",
+            "goosed": [{"name": "A Player", "roster_id": 1, "owner": "Team 1", "slot": "FLEX", "position": "WR",
                         "nfl_team": "TB", "points": 0.0, "clock": "FINAL", "empty_slot": False, "tier": "COOKED", "risk_reason": "OUT",
                         "seconds_left": 0, "goose_prob": 0.108, "player_id": "p1", "opponent": "ATL",
                         "photo": "https://sleepercdn.com/content/nfl/players/thumb/p1.jpg"},
-                       {"name": "Empty slot", "owner": "Team 1", "slot": "TE", "position": None,
+                       {"name": "Empty slot", "roster_id": 1, "owner": "Team 1", "slot": "TE", "position": None,
                         "nfl_team": None, "points": None, "clock": "empty slot",
                         "empty_slot": True, "tier": "COOKED", "risk_reason": "EMPTY SLOT",
                         "seconds_left": None, "goose_prob": 0.108, "player_id": None,
                         "opponent": None, "photo": None}],
-            "danger": [{"name": "B Player", "owner": "Team 2", "slot": "FLEX", "position": "RB",
+            "danger": [{"name": "B Player", "roster_id": 2, "owner": "Team 2", "slot": "FLEX", "position": "RB",
                         "nfl_team": "KC", "points": 0.0, "clock": "Q4 2:10", "empty_slot": False,
                         "tier": "SOLID", "risk_reason": None, "seconds_left": 130,
                         "goose_prob": 0.018, "player_id": "p2", "opponent": "DEN",
                         "photo": "https://sleepercdn.com/content/nfl/players/thumb/p2.jpg"}],
-            "pending": [{"name": "C Player", "owner": "Team 3", "slot": "WR", "position": "WR",
+            "pending": [{"name": "C Player", "roster_id": 3, "owner": "Team 3", "slot": "WR", "position": "WR",
                          "nfl_team": "SF", "points": 0.0, "clock": "not started",
                          "empty_slot": False, "tier": "SHAKY", "risk_reason": None,
                          "seconds_left": None, "goose_prob": 0.033, "player_id": "p3",
                          "opponent": "SEA",
                          "photo": "https://sleepercdn.com/content/nfl/players/thumb/p3.jpg"}],
-            "cleared": [{"name": "D Player", "owner": "Team 4", "slot": "FLEX", "position": "WR",
+            "cleared": [{"name": "D Player", "roster_id": 4, "owner": "Team 4", "slot": "FLEX", "position": "WR",
                          "nfl_team": "TB", "points": 6.4, "clock": "FINAL", "empty_slot": False, "tier": "GOOSE BAIT", "risk_reason": None,
                          "seconds_left": 0, "goose_prob": 0.059, "player_id": "p4",
                          "opponent": "ATL",
@@ -151,7 +161,7 @@ CASES = {
         },
     },
     "watch.html::problem": {
-        "me": ME, "week": 3, "me_roster": 1, "data": None,
+        "me": ME, "week": 3, "me_roster": 1, "wrathed": set(), "data": None,
         "problem": "Could not reach Sleeper (Timeout).",
     },
     "standings.html": {
@@ -159,16 +169,16 @@ CASES = {
         "me": ME,
         "rows": [{"rank": 1, "roster_id": 1, "team": "Team 1", "avatar": None, "chugs": 9,
                   "paid": 7, "owed": 2, "geese": 6, "from_curses": 3, "curses_landed": 2,
-                  "curses_failed": 3, "blessings": 0, "tokens": 1, "is_me": True, "tied": 1},
+                  "curses_failed": 3, "blessings": 0, "wraths_cashed": 2, "wrathed": True, "tokens": 1, "is_me": True, "tied": 1},
                  {"rank": 2, "roster_id": 2, "team": "Team 2", "avatar": None, "chugs": 9,
                   "paid": 9, "owed": 0, "geese": 5, "from_curses": 1, "curses_landed": 1,
-                  "curses_failed": 0, "blessings": 1, "tokens": 0, "is_me": False},
+                  "curses_failed": 0, "blessings": 1, "wraths_cashed": 0, "wrathed": False, "tokens": 0, "is_me": False},
                  {"rank": 3, "roster_id": 3, "team": "Team 3", "avatar": None, "chugs": 4,
                   "paid": 4, "owed": 0, "geese": 4, "from_curses": 0, "curses_landed": 0,
-                  "curses_failed": 2, "blessings": 0, "tokens": 2, "is_me": False},
+                  "curses_failed": 2, "blessings": 0, "wraths_cashed": 0, "wrathed": False, "tokens": 2, "is_me": False},
                  {"rank": 4, "roster_id": 4, "team": "Team 4", "avatar": None, "chugs": 0,
                   "paid": 0, "owed": 0, "geese": 0, "from_curses": 0, "curses_landed": 0,
-                  "curses_failed": 0, "blessings": 0, "tokens": 0, "is_me": False}],
+                  "curses_failed": 0, "blessings": 0, "wraths_cashed": 1, "wrathed": False, "tokens": 0, "is_me": False}],
         "assassin": {"team": "Team 3", "curses_landed": 4},
         "teflon": {"team": "Team 4", "geese": 1},
     },
@@ -187,6 +197,14 @@ for tab in ("chugs", "week", "curses", "rules", "demo", "reset"):
                                    "threshold_proj": 150.0, "created_by_admin": False}],
         "blessings": [{"id": 1, "roster_id": 2, "earned_week": 1, "expires_after": 2,
                        "status": "active"}],
+        # One active mark, one spent, and one persistent (NULL expiry) -- the
+        # three shapes the row can take, and the NULL is its own branch.
+        "wraths": [{"id": 1, "roster_id": 3, "earned_week": 1, "expires_after": 2,
+                    "status": "active", "created_by_admin": False},
+                   {"id": 2, "roster_id": 4, "earned_week": 1, "expires_after": None,
+                    "status": "active", "created_by_admin": True},
+                   {"id": 3, "roster_id": 2, "earned_week": 1, "expires_after": 2,
+                    "status": "consumed", "created_by_admin": False}],
         "active": 1, "wk": WK,
         "rules": [{"key": "points_per_chug", "kind": "int", "label": "Tokens per chug",
                    "value": 1, "default": "1"},

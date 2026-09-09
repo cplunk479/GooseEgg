@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 {% block title %}Goose Watch — Week {{ week }}{% endblock %}
 {% block body %}
 <style>
@@ -97,7 +98,7 @@
     {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div style="flex: 1; min-width: 0;">
       <div class="w-nm">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }}{% if r.slot %} &middot; {{ r.slot }}{% endif %}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</div>
+      <div class="w-sub">{% if r.roster_id in wrathed %}<span class="wrath-badge" style="margin-right: 3px;">{{ ui.sigil(10) }} wrath</span>{% endif %}{{ r.owner }}{% if r.slot %} &middot; {{ r.slot }}{% endif %}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</div>
     </div>
     <div>
       <div class="w-pts" style="color: var(--flame);">{% if r.empty_slot %}—{% else %}{{ r.points | pts }}{% endif %}</div>
@@ -119,7 +120,7 @@
     {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div style="flex: 1; min-width: 0;">
       <div class="w-nm">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% if r.opponent %} vs {{ r.opponent }}{% endif %}{% endif %}</div>
+      <div class="w-sub">{% if r.roster_id in wrathed %}<span class="wrath-badge" style="margin-right: 3px;">{{ ui.sigil(10) }} wrath</span>{% endif %}{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% if r.opponent %} vs {{ r.opponent }}{% endif %}{% endif %}</div>
     </div>
     <div>
       <div class="w-pts" style="color: var(--ember);">{{ r.points | pts }}</div>
@@ -141,7 +142,7 @@
     {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div style="flex: 1; min-width: 0;">
       <div class="w-nm" style="color: var(--text2);">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}{% if r.tier %} &middot; was {{ r.tier | lower }}{% endif %}</div>
+      <div class="w-sub">{% if r.roster_id in wrathed %}<span class="wrath-badge" style="margin-right: 3px;">{{ ui.sigil(10) }} wrath</span>{% endif %}{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}{% if r.tier %} &middot; was {{ r.tier | lower }}{% endif %}</div>
     </div>
     <div>
       <div class="w-pts" style="color: var(--jade);">{{ r.points | pts }}</div>
@@ -163,7 +164,7 @@
     {% if r.photo %}<img class="w-photo" src="{{ r.photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div style="flex: 1; min-width: 0;">
       <div class="w-nm" style="color: var(--text2);">{{ r.name }}</div>
-      <div class="w-sub">{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</div>
+      <div class="w-sub">{% if r.roster_id in wrathed %}<span class="wrath-badge" style="margin-right: 3px;">{{ ui.sigil(10) }} wrath</span>{% endif %}{{ r.owner }} &middot; {{ r.slot }}{% if r.nfl_team %} &middot; {{ r.nfl_team }}{% endif %}</div>
     </div>
     <div style="text-align: right;">
       {% if r.tier %}<span class="tier tier-{{ r.tier | tierclass }}">{{ r.tier }}</span>{% endif %}

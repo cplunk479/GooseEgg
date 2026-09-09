@@ -282,6 +282,40 @@
     .tok--spent  { border: 2px solid var(--border); opacity: 0.26; filter: grayscale(0.85); }
     .tok--off    { border: 2px solid var(--border); opacity: 0.16; filter: grayscale(1); }
 
+    /* ------------------------------------------------------------------
+       Goosifer's Wrath. The visual job here is one thing: make a marked owner
+       the most obvious target on a board of twelve, at a glance, on a phone.
+       So it gets the one colour nothing else on the board uses at full
+       strength (--flame, the COOKED tier's own red) and the one animation
+       besides the blessing halo.
+       ------------------------------------------------------------------ */
+    .sigil { display: block; flex-shrink: 0; }
+
+    .wrath-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 7px 2px 5px; border-radius: 999px;
+      background: color-mix(in srgb, var(--flame) 22%, var(--surf2));
+      border: 1px solid color-mix(in srgb, var(--flame) 62%, transparent);
+      color: var(--flame);
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+      font-size: 9px; letter-spacing: 0.13em; text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .wrath-badge .sigil { margin: -1px 0; }
+
+    /* The mark in a row's Marks column. Pulses, because a target that sits
+       there quietly is not a target anybody remembers to shoot at. */
+    .wrath-mark { animation: wrath 2.2s ease-in-out infinite; border-radius: 50%; }
+    @keyframes wrath {
+      0%, 100% { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ember) 70%, transparent)); }
+      50%      { filter: drop-shadow(0 0 10px var(--flame)); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .wrath-mark { animation: none; filter: drop-shadow(0 0 7px var(--flame)); }
+    }
+
+    .pill-wrath { background: color-mix(in srgb, var(--flame) 20%, var(--surf2)); color: var(--flame); }
+
     /* The shield. A blessing is the one genuinely good thing that happens in
        this app, so it is the one thing that moves. */
     .tok--shield {

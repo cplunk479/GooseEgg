@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 {% block title %}My Geese — Goose Egg{% endblock %}
 {% block body %}
 <style>
@@ -36,6 +37,20 @@
     <div class="bar" style="font-weight: 800; font-size: 11px; letter-spacing: 0.16em; color: var(--ember);">GOOTHULU&rsquo;S CURSE IS ON YOU</div>
     <div style="font-size: 10px; color: var(--text2); margin-top: 1px;">
       {% if my_curse.threshold_proj %}Beat {{ my_curse.threshold_proj | pts }} or chug{% else %}Threshold is set at Sunday kickoff{% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if wrath %}
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: linear-gradient(160deg, color-mix(in srgb, var(--flame) 20%, var(--surf)) 0%, var(--bg) 80%); border-bottom: 1px solid color-mix(in srgb, var(--flame) 55%, transparent);">
+  <span class="wrath-mark" style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--flame); background: color-mix(in srgb, var(--flame) 16%, var(--surf2));">{{ ui.sigil(20) }}</span>
+  <div>
+    <div class="bar" style="font-weight: 800; font-size: 11px; letter-spacing: 0.16em; color: var(--flame);">GOOSIFER&rsquo;S WRATH IS ON YOU</div>
+    <div style="font-size: 10px; color: var(--text2); margin-top: 1px;">
+      You missed under a curse. If another one lands
+      {%- if wrath.expires_after %} through week {{ wrath.expires_after }}{% else %} &mdash; and it stays until you survive one{% endif %},
+      you chug {{ wrath_mult }}&times; and earn no tokens for any of it. Everyone can see this.
     </div>
   </div>
 </div>
@@ -86,6 +101,9 @@
   {% if blessing %}
     <img class="tok tok-22 tok--shield" src="{{ url_for('static', filename='img/goosiah.jpg') }}" alt="">
     <span class="pill pill-blessed">shielded through week {{ blessing.expires_after }}</span>
+  {% endif %}
+  {% if wrath %}
+    <span class="wrath-badge">{{ ui.sigil(13) }} wrath &middot; {{ wrath_mult }}&times;</span>
   {% endif %}
 </div>
 
