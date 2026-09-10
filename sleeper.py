@@ -40,7 +40,17 @@ PROJECTIONS_URL = (
 
 HTTP_TIMEOUT = 20
 PLAYERS_TIMEOUT = 60  # multi-MB payload
-_SCORES_TTL = 3600    # a published schedule does not move
+
+# NOT "a published schedule does not move" -- that reasoning was wrong and is
+# the reason Goose Watch went stale live. This one feed does double duty (see
+# the module docstring): it answers "when does this team kick off" AND "what
+# is the score right now, what quarter, is it over" -- game_state_by_team()
+# below builds state/clock/quarter/seconds_left straight off it. The kickoff
+# half is genuinely static; the live half is exactly as time-sensitive as
+# _TTL_MATCHUPS, so the cache has to move on the live half's clock, not the
+# static half's. Matches _TTL_MATCHUPS below on purpose -- same shape of data,
+# same reason.
+_SCORES_TTL = 120
 
 
 def _get_json(url: str, timeout: int = HTTP_TIMEOUT) -> Any:
@@ -62,6 +72,8 @@ def _get_json(url: str, timeout: int = HTTP_TIMEOUT) -> Any:
 #   league shape   a whole season          rosters change, scoring does not
 #   projections    15 minutes              Sleeper revises these through the week
 #   matchups        2 minutes              starters change up to kickoff
+#   game state      2 minutes              score/quarter/live flag, off week_games()
+#                                           below -- Goose Watch's whole reason to exist
 #
 # In-process only, so each Render web worker keeps its own copy. That is fine:
 # the worst case is one owner seeing a two-minute-old lineup, and the numbers

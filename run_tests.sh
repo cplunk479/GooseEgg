@@ -9,6 +9,8 @@ python tests/test_week_engine.py
 echo
 python tests/test_watch.py
 echo
+python tests/test_sleeper_cache.py
+echo
 python tests/test_lineups.py
 echo
 python tests/test_templates.py

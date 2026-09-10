@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.9.3] — 2026-09-10
+
+Fix Goose Watch not picking up live games in progress.
+
+### Fixed
+- **`_SCORES_TTL` was 3600 (one hour)**, under the reasoning "a published
+  schedule does not move." True for half the payload, false for the other
+  half: `week_games()` is the single feed that answers both "when does this
+  team kick off" (genuinely static) and "what is the score right now, what
+  quarter, is it over" (exactly as live as matchups) — `game_state_by_team()`
+  builds Goose Watch's `state`/`clock`/`seconds_left` straight off it. A game
+  that kicked off partway through the cache window kept reading as "not
+  started" for up to the rest of the hour, which is why Seahawks/Patriots
+  were live and still weren't sorting to the top. `_SCORES_TTL` is now 120
+  seconds, matching `_TTL_MATCHUPS` — same shape of data, same reason.
+
+### Tests
+New `tests/test_sleeper_cache.py`: exercises `sleeper.py`'s real response
+cache directly (a monkeypatched clock and `_get_json`, no network), including
+a test that models the exact reported scenario end-to-end through
+`game_state_by_team()`. `test_watch.py` never would have caught this — it
+replaces `sleeper` with a fake that bypasses the caching layer entirely. 370
+checks pass.
+
 ## [0.9.2] — 2026-09-09
 
 Show the full team name when the lineup panel opens.
